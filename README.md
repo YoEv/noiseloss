@@ -10,8 +10,6 @@ We inject structured perturbations (noise, deletions, shuffles), trace token-lev
 - **Project**: https://noiseloss.github.io  
 - **Paper (PDF)**: https://noiseloss.github.io/paper/paper.pdf
 
----
-
 ## Overview
 
 This repository contains the code and scripts used to:
@@ -20,8 +18,6 @@ This repository contains the code and scripts used to:
 - Visualize layer/time behaviors showing *context amnesia* under localized noise.
 
 Our experiments reveal that **likelihood can deceptively improve** after the model adapts to injected noise, calling for a rethink of likelihood-based evaluation in Music LLMs.
-
----
 
 ## Repository Layout
 
@@ -55,8 +51,6 @@ noiseloss/
 - 分模块（Attention Q/K/V/O、FFN、LayerNorm）与分层热力图  
 - 观察从尖峰到适应再到恢复的梯度通量演化
 
----
-
 ## Quick Start
 
 
@@ -88,8 +82,6 @@ python tools/convert_audio_ffmpeg.py --in_dir Dataset/raw --out_dir Dataset/wav 
 python tools/encodec_receptive_field_calculator.py
 ```
 
----
-
 ## Notes & Practices
 
 * **Right shift**：per-token NLL 需与下一 token 对齐（`logits[..., t]` 对 `target[..., t+1]`）。
@@ -98,7 +90,6 @@ python tools/encodec_receptive_field_calculator.py
 * **参数分桶**：Attention（Q/K/V/O）、FFN（W1/W2/偏置）、LayerNorm（γ/β）分别统计；既存逐层×模块，也存逐头。
 * **复现实验**：保存 `meta.json`（Git 提交哈希、配置、包版本）、把矩阵底稿以 `npy/parquet` 落盘。
 
----
 
 ## Citation
 
@@ -125,14 +116,11 @@ Xiaosha Li¹, Chun Liu², Ziyu Wang³⁴
 ⁴ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI), Abu Dhabi, UAE
 Contact: `xiaosha@gatech.edu`, `chun.liu@bytedance.com`, `ziyu.wang@nyu.edu`
 
----
 
 ## License
 
 This repository is for research and academic use.
 For other uses, please contact the authors.
-
----
 
 > Loss can reveal more than accuracy:
 > it tells when a model listens, when it forgets, and when it learns to live with noise.
