@@ -25,6 +25,7 @@ Our experiments reveal that **likelihood can deceptively improve** after the mod
 
 ## Repository Layout
 
+```
 noiseloss/
 ├── dataselect/        # 数据筛选与抽样脚本（MIDI/音频过滤、节奏/时长选择等）
 ├── Dataset/           # 数据集素材（本地放置；建议 .gitignore）
@@ -35,7 +36,7 @@ noiseloss/
 ├── plot/              # 通用绘图脚本与结果（折线、箱线、直方图等）
 ├── processors/        # 实验处理入口（扰动、生成、度量、phase 分阶段脚本等）
 └── tools/             # 实用工具（转码、tokenizer、EnCodec/FFmpeg/SOX 等）
-
+```
 
 ## Experimental Phases
 
