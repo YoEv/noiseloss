@@ -1,0 +1,303 @@
+import os
+import random
+import copy
+import json
+from datetime import datetime
+from pretty_midi import PrettyMIDI, note_number_to_name
+from tqdm import tqdm
+
+# 常量定义
+MAX_NOTE_GAP = 0.3
+MIN_CHORD_NOTES = 3
+DIATONIC_SCALE = [0,2,4,5,7,9,11]
+CHORD_TONES = [0,4,7]
+SAFE_PITCH_RANGE = (24, 103)
+TRACK_SELECTION_THRESHOLD = 5  # 新增轨道选择阈值
+
+class MidiModifier:
+    def __init__(self):
+        self.log = []
+        self.error_log = []
+        self.current_process = ""
+        self.processed_files = 0  # 新增处理文件计数器
+
+    def _save_error(self, fname, error, action):
+        """增强错误记录方法"""
+        error_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "file": fname,
+            "action": action,
+            "error": str(error),
+            "details": {  # 新增详细信息字段
+                "processing_stage": self.current_process,
+                "file_count": self.processed_files
+            }
+        }
+        self.error_log.append(error_entry)
+
+    def _clamp_pitch(self, pitch):
+        """音高安全钳制方法"""
+        return max(0, min(127, pitch))
+
+    def _deep_clone_midi(self, midi):
+        """改进的深克隆方法"""
+        new_midi = PrettyMIDI()
+        new_midi.time_signature_changes = copy.deepcopy(midi.time_signature_changes)
+        new_midi.key_signature_changes = copy.deepcopy(midi.key_signature_changes)
+        new_midi.lyrics = copy.deepcopy(midi.lyrics)
+        for instr in midi.instruments:
+            new_instr = copy.deepcopy(instr)
+            new_instr.notes = [copy.deepcopy(n) for n in instr.notes]
+            new_midi.instruments.append(new_instr)
+        return new_midi
+    
+    def _get_main_track(self, midi):
+        """新增：自动选择主旋律轨道"""
+        return max(midi.instruments, key=lambda x: len(x.notes), default=None)
+    
+    def _cluster_chords(self, midi):
+        """改进的多轨道和弦检测"""
+        main_track = self._get_main_track(midi)
+        if not main_track:
+            return []
+        
+        # 合并所有轨道的音符（新增多轨道处理）
+        all_notes = []
+        for instr in midi.instruments:
+            all_notes.extend([n for n in instr.notes 
+                            if SAFE_PITCH_RANGE[0] <= n.pitch <= SAFE_PITCH_RANGE[1]])
+
+        """带音高过滤的和弦检测"""
+        chords = []
+        current_chord = []
+        for note in sorted(all_notes, key=lambda x: x.start):
+            # 改进空隙检测逻辑（新增连续区域检查）
+            if current_chord:
+                time_gap = note.start - current_chord[-1].start
+                pitch_gap = abs(note.pitch - current_chord[-1].pitch)
+                
+                if time_gap > MAX_NOTE_GAP or pitch_gap > 12:
+                    if len(current_chord) >= MIN_CHORD_NOTES:
+                        chords.append(current_chord)
+                    current_chord = []
+            current_chord.append(note)
+        
+        if len(current_chord) >= MIN_CHORD_NOTES:
+            chords.append(current_chord)
+        return chords
+
+    def _find_dense_region(self, chords):
+        """新增：寻找音符密集区域"""
+        if not chords:
+            return []
+        
+        # 统计和弦持续时间
+        chord_durations = [(c[0].start, c[-1].end) for c in chords]
+        
+        # 寻找最长连续区域
+        regions = []
+        current_start, current_end = chord_durations[0]
+        for start, end in chord_durations[1:]:
+            if start <= current_end:
+                current_end = max(current_end, end)
+            else:
+                regions.append((current_start, current_end))
+                current_start, current_end = start, end
+        regions.append((current_start, current_end))
+        
+        # 选择最长区域
+        longest = max(regions, key=lambda x: x[1]-x[0])
+        return [c for c in chords if c[0].start >= longest[0] and c[-1].end <= longest[1]]
+
+    def _validate_pitch(self, midi, original_pitch, new_pitch, chord_root):
+        """带音高钳制的验证方法"""
+        new_pitch = self._clamp_pitch(new_pitch)
+        key = midi.key_signature_changes[0].key_number % 12 if midi.key_signature_changes else 0
+        scale_degrees = [(key + offset) % 12 for offset in DIATONIC_SCALE]
+        chord_degree = (new_pitch - chord_root) % 12
+        return (new_pitch % 12) in scale_degrees or chord_degree in CHORD_TONES
+
+    def modify_single_note(self, midi_path, output_path):
+        """单音修改方法（新增详细进度提示）"""
+        self.current_process = f"单音修改处理中: {os.path.basename(midi_path)}"
+        try:
+            orig_midi = PrettyMIDI(midi_path)
+            mod_midi = self._deep_clone_midi(orig_midi)
+
+            # 使用改进的和弦检测
+            all_chords = self._cluster_chords(mod_midi)
+            dense_chords = self._find_dense_region(all_chords)  # 新增密集区域筛选
+            
+            if not dense_chords:
+                self._save_error(os.path.basename(midi_path), "未在密集区域找到和弦", 'single_note')
+                return False
+
+            if not orig_midi.instruments:
+                self._save_error(os.path.basename(midi_path), "找不到乐器轨道", 'single_note')
+                return False
+
+            mod_midi = self._deep_clone_midi(orig_midi)
+            chords = self._cluster_chords(mod_midi)
+            if not chords:
+                self._save_error(os.path.basename(midi_path), "未检测到有效和弦", 'single_note')
+                return False
+
+            selected_chord = random.choice(dense_chords)
+            chord_root = min(n.pitch for n in selected_chord) % 12
+            target_note = random.choice(selected_chord)
+            original_pitch = target_note.pitch
+
+            valid_modified = False
+            for _ in range(60):
+                new_pitch = self._clamp_pitch(original_pitch + random.choice([-12, 12]))
+                if self._validate_pitch(mod_midi, original_pitch, new_pitch, chord_root):
+                    target_note.pitch = new_pitch
+                    valid_modified = True
+                    break
+
+            if valid_modified:
+                for note in mod_midi.instruments[0].notes:
+                    if not (0 <= note.pitch <= 127):
+                        raise ValueError(f"非法音高值: {note.pitch}")
+
+                mod_midi.write(output_path)
+                self.log.append({
+                    'file': os.path.basename(output_path),
+                    'action': 'single_note',
+                    'time': target_note.start,
+                    'original': f"{note_number_to_name(original_pitch)} ({original_pitch})",
+                    'modified': f"{note_number_to_name(new_pitch)} ({new_pitch})",
+                    'status': 'success'
+                })
+                return True
+            self._save_error(os.path.basename(midi_path), "60次尝试后未找到有效音高", 'single_note')
+            return False
+        except Exception as e:
+            self._save_error(os.path.basename(midi_path), e, 'single_note')
+            print(f"❌ {os.path.basename(midi_path)} 单音修改失败: {str(e)}")
+            return False
+
+    def modify_voicing(self, midi_path, output_path):
+        """和弦排列修改方法（新增详细进度提示）"""
+        self.current_process = f"和弦排列处理中: {os.path.basename(midi_path)}"
+        try:
+            orig_midi = PrettyMIDI(midi_path)
+            mod_midi = self._deep_clone_midi(orig_midi)
+            chords = self._cluster_chords(mod_midi)
+            if not chords:
+                self._save_error(os.path.basename(midi_path), "未检测到有效和弦", 'voicing')
+                return False
+
+            selected_chord = random.choice(chords)
+            chord_notes = sorted(selected_chord, key=lambda x: x.pitch)
+            if len(chord_notes) < 3:
+                self._save_error(os.path.basename(midi_path), "和弦音数量不足3个", 'voicing')
+                return False
+
+            original_pitches = [n.pitch for n in chord_notes]
+            inversion_type = random.choice(['root', 'first', 'second'])
+
+            if inversion_type == 'first':
+                chord_notes[0].pitch = self._clamp_pitch(chord_notes[0].pitch + 12)
+            elif inversion_type == 'second' and len(chord_notes) > 1:
+                chord_notes[1].pitch = self._clamp_pitch(chord_notes[1].pitch + 12)
+
+            chord_notes.sort(key=lambda x: x.pitch)
+            for i in range(1, len(chord_notes)):
+                if chord_notes[i].pitch < chord_notes[i - 1].pitch + 3:
+                    chord_notes[i].pitch = self._clamp_pitch(chord_notes[i - 1].pitch + 3)
+
+            for note in mod_midi.instruments[0].notes:
+                if not (0 <= note.pitch <= 127):
+                    raise ValueError(f"非法音高值: {note.pitch}")
+
+            mod_midi.write(output_path)
+            self.log.append({
+                'file': os.path.basename(output_path),
+                'action': 'voicing',
+                'time': chord_notes[0].start,
+                'original': [note_number_to_name(p) for p in original_pitches],
+                'modified': [note_number_to_name(n.pitch) for n in chord_notes],
+                'status': 'success'
+            })
+            return True
+        except Exception as e:
+            self._save_error(os.path.basename(midi_path), e, 'voicing')
+            print(f"❌ {os.path.basename(midi_path)} 和弦排列失败: {str(e)}")
+            return False
+
+    def _save_logs(self, output_dir):
+        """增强日志保存方法"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_data = {
+            'process_info': {
+                'start_time': timestamp,
+                'total_files': len(self.log) + len(self.error_log),
+                'success_rate': f"{len(self.log)/(len(self.log)+len(self.error_log)):.1%}",
+                'error_details': {  # 新增错误分类统计
+                    'no_instruments': sum(1 for e in self.error_log if "找不到乐器轨道" in e['error']),
+                    'no_chords': sum(1 for e in self.error_log if "未检测到有效和弦" in e['error']),
+                    'invalid_pitch': sum(1 for e in self.error_log if "非法音高值" in e['error'])
+                }
+            },
+            'modifications': self.log,
+            'errors': self.error_log
+        }
+        error_file = os.path.join(output_dir, f"error_log_{timestamp}.json")
+        log_path = os.path.join(output_dir, f"process_log_{timestamp}.json")
+        with open(log_path, 'w', encoding='utf-8') as f:
+            json.dump(log_data, f, ensure_ascii=False, indent=2)
+        with open(error_file, 'w', encoding='utf-8') as f:
+            json.dump(self.error_log, f, ensure_ascii=False, indent=2)
+
+    def process_directory(self, input_dir, output_dir):
+        """目录处理方法（新增进度管理）"""
+        os.makedirs(output_dir, exist_ok=True)
+        midi_files = [f for f in os.listdir(input_dir) if f.endswith('.mid')]
+        success = 0
+        total = len(midi_files) * 2
+        total_attempts = 0
+
+        # 新增进度条显示
+        with tqdm(total=total, desc="Processing Files", unit="op") as pbar:
+            for fname in midi_files:
+                self.processed_files += 1
+                in_path = os.path.join(input_dir, fname)
+                base_name = os.path.splitext(fname)[0]
+
+                # 保存原始文件
+                orig_out = os.path.join(output_dir, f"{base_name}_original.mid")
+                try:
+                    orig_midi = PrettyMIDI(in_path)
+                    orig_midi.write(orig_out)
+                except Exception as e:
+                    self._save_error(fname, e, 'original_save')
+                    pbar.update(2)
+                    continue
+
+                # 单音修改
+                out1 = os.path.join(output_dir, f"{base_name}_action1.mid")
+                if self.modify_single_note(in_path, out1):
+                    success += 1
+                pbar.update(1)
+
+                # 和弦修改
+                out2 = os.path.join(output_dir, f"{base_name}_action2.mid")
+                if self.modify_voicing(in_path, out2):
+                    success += 1
+                pbar.update(1)
+
+                pbar.set_postfix(file=fname[:15], success=success, errors=len(self.error_log))
+
+        print(f"\nSuccess: {success}/{total} | Errors: {len(self.error_log)}")
+        print(f"\n✅ 成功修改 {success}/{total_attempts} 个文件")
+        print(f"⚠️ 失败操作: {len(self.error_log)} 个")
+        self._save_logs(output_dir)
+        return self.log
+
+if __name__ == "__main__":
+    modifier = MidiModifier()
+    modifier.process_directory(
+        input_dir="./selected_midis_cropped",
+        output_dir="./final_modified_output_test3_try_error_fix"
+    )

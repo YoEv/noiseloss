@@ -1,0 +1,1 @@
+# Make muzic a proper Python package

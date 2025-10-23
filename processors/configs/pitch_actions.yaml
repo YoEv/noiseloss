@@ -1,0 +1,52 @@
+output_dir: pitch_processed
+actions:
+  - name: "semitone_shifts"
+    steps:
+      - step: 1
+        selection_type: "random"
+        operation: "semitone_pitch_change"
+        parameters:
+          shifts: [-1, 1]  # 半音变化范围
+          modifications:
+            - percentage: 10
+              save_suffix: "_pitch1_1_step1_semi10"
+            - percentage: 30
+              save_suffix: "_pitch1_1_step1_semi30"
+            - percentage: 50
+              save_suffix: "_pitch1_1_step1_semi50"
+            - percentage: 80
+              save_suffix: "_pitch1_1_step1_semi80"
+
+  - name: "octave_shifts"
+    steps:
+      - step: 1
+        selection_type: "random"
+        operation: "octave_pitch_change"
+        parameters:
+          shifts: [-12, 12]  # 八度变化范围
+          modifications:
+            - percentage: 10
+              save_suffix: "_pitch1_2_step1_oct10"
+            - percentage: 30
+              save_suffix: "_pitch1_2_step1_oct30"
+            - percentage: 50
+              save_suffix: "_pitch1_2_step1_oct50"
+            - percentage: 80
+              save_suffix: "_pitch1_2_step1_oct80"
+
+  - name: "diatonic_shifts"
+    steps:
+      - step: 1
+        selection_type: "random"
+        operation: "diatonic_pitch_change"
+        parameters:
+          shifts: [-2, 2]  # 全音变化范围
+          modifications:
+            - percentage: 10
+              save_suffix: "_pitch1_3_step1_dia10"
+            - percentage: 30
+              save_suffix: "_pitch1_3_step1_dia30"
+            - percentage: 50
+              save_suffix: "_pitch1_3_step1_dia50"
+            - percentage: 80
+              save_suffix: "_pitch1_3_step1_dia80"

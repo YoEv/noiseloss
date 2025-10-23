@@ -1,0 +1,229 @@
+# configs/rhythm_actions.yaml
+output_dir: rhythm_processed
+actions:
+  # - name: "1_1_duration_change"
+  #   steps:
+  #     - step: 1
+  #       selection_type: "random"
+  #       operation: "duration_change"
+  #       parameters:
+  #         source_durations: [0.25]  # 四分音符
+  #         target_duration: 0.125    # 八分音符
+  #         note_counts:
+  #           - count: 1
+  #             save_suffix: "_rhythm1_1_step1_n1"
+  #           - count: 4
+  #             save_suffix: "_rhythm1_1_step1_n4"
+  #           - count: 16
+  #             save_suffix: "_rhythm1_1_step1_n16"
+  #           - count: 32
+  #             save_suffix: "_rhythm1_1_step1_n32"
+
+  #     - step: 2
+  #       selection_type: "random"
+  #       operation: "duration_change"
+  #       parameters:
+  #         source_durations: [0.25]
+  #         target_duration: 0.0625   # 十六分音符
+  #         note_counts:
+  #           - count: 1
+  #             save_suffix: "_rhythm1_1_step2_n1"
+  #           - count: 4
+  #             save_suffix: "_rhythm1_1_step2_n4"
+  #           - count: 16
+  #             save_suffix: "_rhythm1_1_step2_n16"
+  #           - count: 32
+  #             save_suffix: "_rhythm1_1_step2_n32"
+
+      # - step: 3
+      #   selection_type: "continuous"
+      #   operation: "duration_change"
+      #   parameters:
+      #     source_durations: [0.25]
+      #     target_duration: 0.125
+      #     note_counts:
+      #       - count: 4
+      #         save_suffix: "_rhythm1_1_step3_n4"
+      #       - count: 16
+      #         save_suffix: "_rhythm1_1_step3_n16"
+      #       - count: 32
+      #         save_suffix: "_rhythm1_1_step3_n32"
+
+      # - step: 4
+      #   selection_type: "continuous"
+      #   operation: "duration_change"
+      #   parameters:
+      #     source_durations: [0.25]
+      #     target_duration: 0.0625
+      #     note_counts:
+      #       - count: 4
+      #         save_suffix: "_rhythm1_1_step4_n4"
+      #       - count: 16
+      #         save_suffix: "_rhythm1_1_step4_n16"
+      #       - count: 32
+      #         save_suffix: "_rhythm1_1_step4_n32"
+
+  # - name: "1_2_rhythm_conversion"
+  #   steps:
+  #     - step: 1
+  #       selection_type: "random"
+  #       operation: "rhythm_conversion"
+  #       parameters:
+  #         conversion_type: "sparse_to_dense"
+  #         source_patterns: [0.25, 0.5, 1]
+  #         target_patterns: [0.125, 0.0625]
+  #         note_counts:
+  #           - count: 1
+  #             save_suffix: "_rhythm1_2_step1_n1"
+  #           - count: 4
+  #             save_suffix: "_rhythm1_2_step1_n4"
+  #           - count: 16
+  #             save_suffix: "_rhythm1_2_step1_n16"
+  #           - count: 32
+  #             save_suffix: "_rhythm1_2_step1_n32"
+
+
+      # - step: 2
+      #   selection_type: "random"
+      #   operation: "rhythm_conversion"
+      #   parameters:
+      #     conversion_type: "dense_to_sparse"
+      #     source_patterns: [0.0625, 0.125]
+      #     target_patterns: [0.25, 0.5, 1]
+      #     note_counts:
+      #       - count: 1
+      #         save_suffix: "_rhythm1_2_step2_n1"
+      #       - count: 4
+      #         save_suffix: "_rhythm1_2_step2_n4"
+      #       - count: 16
+      #         save_suffix: "_rhythm1_2_step2_n16"
+      #       - count: 32
+      #         save_suffix: "_rhythm1_2_step2_n32"
+
+
+      # - step: 3
+      #   selection_type: "continuous"
+      #   operation: "rhythm_conversion"
+      #   parameters:
+      #     conversion_type: "sparse_to_dense"
+      #     source_patterns: [0.25, 0.5, 1]
+      #     target_patterns: [0.125, 0.0625]
+      #     note_counts:
+      #       - count: 4
+      #         save_suffix: "_rhythm1_2_step3_n4"
+      #       - count: 16
+      #         save_suffix: "_rhythm1_2_step3_n16"
+      #       - count: 32
+      #         save_suffix: "_rhythm1_2_step3_n32"
+
+
+      # - step: 4
+      #   selection_type: "continuous"
+      #   operation: "rhythm_conversion"
+      #   parameters:
+      #     conversion_type: "dense_to_sparse"
+      #     source_patterns: [0.0625, 0.125]
+      #     target_patterns: [0.25, 0.5, 1]
+      #     note_counts:
+      #       - count: 4
+      #         save_suffix: "_rhythm1_2_step4_n4"
+      #       - count: 16
+      #         save_suffix: "_rhythm1_2_step4_n16"
+      #       - count: 32
+      #         save_suffix: "_rhythm1_2_step4_n32"
+
+
+  # - name: "1_3_density_adjust"
+  #   steps:
+  #     - step: 1
+  #       selection_type: "random"
+  #       operation: "density_adjust"
+  #       parameters:
+  #         density_change: "halve"  # 密度减半
+  #         section_ratios:
+  #           - ratio: 0.1
+  #             save_suffix: "_rhythm1_3_step1_r10"
+  #           - ratio: 0.2
+  #             save_suffix: "_rhythm1_3_step1_r20"
+  #           - ratio: 0.3
+  #             save_suffix: "_rhythm1_3_step1_r30"
+  #           - ratio: 0.4
+  #             save_suffix: "_rhythm1_3_step1_r40"
+
+  #     - step: 2
+  #       selection_type: "random"
+  #       operation: "density_adjust"
+  #       parameters:
+  #         density_change: "double"  # 密度加倍
+  #         section_ratios:
+  #           - ratio: 0.1
+  #             save_suffix: "_rhythm1_3_step2_r10"
+  #           - ratio: 0.2
+  #             save_suffix: "_rhythm1_3_step2_r20"
+  #           - ratio: 0.3
+  #             save_suffix: "_rhythm1_3_step2_r30"
+  #           - ratio: 0.4
+  #             save_suffix: "_rhythm1_3_step2_r40"
+
+      # - step: 3
+      #   selection_type: "continuous"
+      #   operation: "density_adjust"
+      #   parameters:
+      #     density_change: "halve"
+      #     section_ratios:
+      #       - ratio: 0.1
+      #         save_suffix: "_rhythm1_3_step3_r10"
+      #       - ratio: 0.2
+      #         save_suffix: "_rhythm1_3_step3_r20"
+      #       - ratio: 0.3
+      #         save_suffix: "_rhythm1_3_step3_r30"
+      #       - ratio: 0.4
+      #         save_suffix: "_rhythm1_3_step3_r40"
+
+      # - step: 4
+      #   selection_type: "continuous"
+      #   operation: "density_adjust"
+      #   parameters:
+      #     density_change: "double"
+      #     section_ratios:
+      #       - ratio: 0.1
+      #         save_suffix: "_rhythm1_3_step4_r10"
+      #       - ratio: 0.2
+      #         save_suffix: "_rhythm1_3_step4_r20"
+      #       - ratio: 0.3
+      #         save_suffix: "_rhythm1_3_step4_r30"
+      #       - ratio: 0.4
+      #         save_suffix: "_rhythm1_3_step4_r40"
+
+  - name: "1_4_note_deletion"
+    steps:
+      - step: 1
+        selection_type: "random"
+        operation: "note_deletion"
+        parameters:
+          deletion_mode: "random"
+          deletion_ratios:
+            - ratio: 0.1
+              save_suffix: "_rhythm1_4_step1_r10"
+            - ratio: 0.2
+              save_suffix: "_rhythm1_4_step1_r20"
+            - ratio: 0.3
+              save_suffix: "_rhythm1_4_step1_r30"
+            - ratio: 0.4
+              save_suffix: "_rhythm1_4_step1_r40"
+
+      # - step: 2
+      #   selection_type: "patterned"
+      #   operation: "note_deletion"
+      #   parameters:
+      #     deletion_mode: "patterned"
+      #     deletion_ratios:
+      #       # - ratio: 0.1
+      #       #   save_suffix: "_rhythm1_4_step2_r10"
+      #       # - ratio: 0.2
+      #       #   save_suffix: "_rhythm1_4_step2_r20"
+      #       - ratio: 0.3
+      #         save_suffix: "_rhythm1_4_step2_r30"
+      #       - ratio: 0.4
+      #         save_suffix: "_rhythm1_4_step2_r40"
+      #     pattern_interval: 0.125  # 八分音符间隔

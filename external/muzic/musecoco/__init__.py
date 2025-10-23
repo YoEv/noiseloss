@@ -1,0 +1,1 @@
+# Make musecoco a proper Python package
