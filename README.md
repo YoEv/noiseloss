@@ -1,8 +1,3 @@
-下面是一整份可以**直接复制粘贴**到 `README.md` 的版本。我保持了你网站的黑白极简、研究导向的语气，并把正确的论文信息与链接都放好了。
-
----
-
-```markdown
 # NoiseLoss
 
 **NoiseLoss** probes how music language models react when coherence is broken.  
@@ -30,10 +25,6 @@ Our experiments reveal that **likelihood can deceptively improve** after the mod
 
 ## Repository Layout
 
-> 下列为常见的顶层目录；不同分支/阶段会略有差异，但命名保持直观。
-
-```
-
 noiseloss/
 ├── dataselect/        # 数据筛选与抽样脚本（MIDI/音频过滤、节奏/时长选择等）
 ├── Dataset/           # 数据集素材（本地放置；建议 .gitignore）
@@ -45,17 +36,6 @@ noiseloss/
 ├── processors/        # 实验处理入口（扰动、生成、度量、phase 分阶段脚本等）
 └── tools/             # 实用工具（转码、tokenizer、EnCodec/FFmpeg/SOX 等）
 
-````
-
-典型子目录（示例）：
-- `processors/phase5/`：区域化损失分析与绘图入口（5s 窗口、随机位置、白/粉/棕噪、打乱/删除等）。  
-- `tools/audiocraft_tokenizer.py`、`tools/xcodec_tokenizer.py`：模型/编码器相关的标记与转换小工具。  
-- `plot/plot_loss_time_in.py`、`plot/plot_loss_tokens.py`：时间轴与 token 维度的可视化。  
-- `dataselect/select_files.py`、`dataselect/rm_silent_music.py`：数据筛选与清洗。
-
-> 若你采用新的整理方案（如 `datasets/`、`plots/`、`experiments/` 等），README 亦适用；目录职责不变。
-
----
 
 ## Experimental Phases
 
@@ -78,7 +58,6 @@ noiseloss/
 
 ## Quick Start
 
-> 以下命令为常见入口示例；根据你本地数据与环境调整路径/参数。
 
 **1) 区域化损失曲线（Phase 5）**
 ```bash
@@ -107,8 +86,6 @@ python tools/convert_audio_ffmpeg.py --in_dir Dataset/raw --out_dir Dataset/wav 
 # 计算 EnCodec receptive field
 python tools/encodec_receptive_field_calculator.py
 ```
-
-> 建议把中间产物（音频、npy、csv、图表）集中放到本地的 `results/` 或 `outputs/`，并在 `.gitignore` 中排除。
 
 ---
 
@@ -159,5 +136,3 @@ For other uses, please contact the authors.
 > Loss can reveal more than accuracy:
 > it tells when a model listens, when it forgets, and when it learns to live with noise.
 
-```
-```
