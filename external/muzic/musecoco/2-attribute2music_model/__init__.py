@@ -1,1 +1,0 @@
-# Make 2-attribute2music_model a proper Python package
