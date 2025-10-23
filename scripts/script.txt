@@ -1,0 +1,58 @@
+To collect wav files from a list in the text file
+xargs -I {} ln -s pitch_out_wav/{} {} < loss_cal_velocity_errors.txt
+xargs -I {} ln -s velocity_out_wav/{} velocity_error_files/{} < loss_cal_velocity_errors.txt
+xargs -I {} ln -s structure_out_wav/{} {} < structure_mod_processing_errors.txt
+xargs -I {} ln -s velocity_pitch_out_wav/{} velocity_pitch_error_files/{} < loss_cal_velocity_pitch.errors.txt
+
+
+
+nano run_script.sh
+#!/bin/bash
+
+# 定义两个数组
+audio_dirs=(
+    "LMD_100_rhythm_wav"
+    "LMD_100_structure_wav"
+    "LMD_100_velocity_wav"
+    "ASAP_100_pitch_wav"
+    "ASAP_100_rhythm_wav"
+    "ASAP_100_structure_wav"
+    "ASAP_100_velocity_wav"
+    "ASAP_100_velocity_pitch_wav"
+)
+
+output_files=(
+    "LMD_100_rhythm_musicgen_loss_cal_mse.txt"
+    "LMD_100_structure_musicgen_loss_cal_mse.txt"
+    "LMD_100_velocity_musicgen_loss_cal_mse.txt"
+    "ASAP_100_pitch_musicgen_loss_cal_mse.txt"
+    "ASAP_100_rhythm_musicgen_loss_cal_mse.txt"
+    "ASAP_100_structure_musicgen_loss_cal_mse.txt"
+    "ASAP_100_velocity_musicgen_loss_cal_mse.txt"
+    "ASAP_100_velocity_pitch_musicgen_loss_cal_mse.txt"
+)
+
+# 检查数组长度是否相同
+if [ ${#audio_dirs[@]} -ne ${#output_files[@]} ]; then
+    echo "错误：audio_dirs和output_files数组长度不一致"
+    exit 1
+fi
+
+# 循环执行
+for i in "${!audio_dirs[@]}"; do
+    echo "正在处理: ${audio_dirs[$i]} => ${output_files[$i]}"
+    python loss_cal_audiocraft.py \
+        --audio_dir "${audio_dirs[$i]}" \
+        --output_file "${output_files[$i]}" \
+        --loss_type mse
+
+    # 检查命令是否执行成功
+    if [ $? -ne 0 ]; then
+        echo "警告: ${audio_dirs[$i]} 处理失败"
+    fi
+done
+
+echo "所有任务已完成"
+
+#运行脚本
+./run_script.sh

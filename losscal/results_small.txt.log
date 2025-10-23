@@ -1,0 +1,5 @@
+使用设备: cpu
+压缩比率: 0.0016 (每音频秒生成50个tokens)
+Processing 20 audio files
+Results will be saved to: results_small.txt
+GPU内存已清理

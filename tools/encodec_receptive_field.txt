@@ -1,0 +1,103 @@
+
+==================================================
+MusicGen 32kHz 配置分析
+==================================================
+
+1. 默认配置 (stride=320):
+=== SEANet感受野计算 ===
+配置参数:
+  ratios: [8, 5, 4, 2]
+  kernel_size: 7
+  residual_kernel_size: 3
+  n_residual_layers: 1
+  dilation_base: 2
+  sample_rate: 32000
+
+逐层计算:
+  初始卷积 (kernel=7): RF += 6, 总RF = 7
+
+  下采样块 1 (stride=8):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 2, 总RF = 9
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 2, 总RF = 11
+    下采样卷积 (kernel=7): RF += 6, 总RF = 17
+    累计步幅更新为: 8
+
+  下采样块 2 (stride=5):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 16, 总RF = 33
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 16, 总RF = 49
+    下采样卷积 (kernel=7): RF += 48, 总RF = 97
+    累计步幅更新为: 40
+
+  下采样块 3 (stride=4):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 80, 总RF = 177
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 80, 总RF = 257
+    下采样卷积 (kernel=7): RF += 240, 总RF = 497
+    累计步幅更新为: 160
+
+  下采样块 4 (stride=2):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 320, 总RF = 817
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 320, 总RF = 1137
+    下采样卷积 (kernel=7): RF += 960, 总RF = 2097
+    累计步幅更新为: 320
+
+  最后卷积 (kernel=7): RF += 1920, 总RF = 4017
+
+=== 计算结果 ===
+总感受野: 4017 样本点
+总下采样倍数: 320
+等效窗口时长: 125.53 ms
+覆盖token数: 12.55 个token
+Frame rate: 100.0 Hz
+
+--------------------------------------------------
+
+2. MusicGen配置 (stride=640):
+=== SEANet感受野计算 ===
+配置参数:
+  ratios: [8, 5, 4, 4]
+  kernel_size: 7
+  residual_kernel_size: 3
+  n_residual_layers: 1
+  dilation_base: 2
+  sample_rate: 32000
+
+逐层计算:
+  初始卷积 (kernel=7): RF += 6, 总RF = 7
+
+  下采样块 1 (stride=8):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 2, 总RF = 9
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 2, 总RF = 11
+    下采样卷积 (kernel=7): RF += 6, 总RF = 17
+    累计步幅更新为: 8
+
+  下采样块 2 (stride=5):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 16, 总RF = 33
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 16, 总RF = 49
+    下采样卷积 (kernel=7): RF += 48, 总RF = 97
+    累计步幅更新为: 40
+
+  下采样块 3 (stride=4):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 80, 总RF = 177
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 80, 总RF = 257
+    下采样卷积 (kernel=7): RF += 240, 总RF = 497
+    累计步幅更新为: 160
+
+  下采样块 4 (stride=4):
+    残差层1-卷积1 (kernel=3, dilation=1): RF += 320, 总RF = 817
+    残差层1-卷积2 (kernel=3, dilation=1): RF += 320, 总RF = 1137
+    下采样卷积 (kernel=7): RF += 960, 总RF = 2097
+    累计步幅更新为: 640
+
+  最后卷积 (kernel=7): RF += 3840, 总RF = 5937
+
+=== 计算结果 ===
+总感受野: 5937 样本点
+总下采样倍数: 640
+等效窗口时长: 185.53 ms
+覆盖token数: 9.28 个token
+Frame rate: 50.0 Hz
+
+==================================================
+对比分析:
+默认配置: RF=4017样本, 125.53ms, 12.55token
+MusicGen配置: RF=5937样本, 185.53ms, 9.28token
