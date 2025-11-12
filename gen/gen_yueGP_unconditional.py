@@ -68,54 +68,45 @@ class YuEGPGenerator:
 
     def _load_xcodec_model(self):
         """Load XCodec SoundStream model for audio reconstruction"""
-        try:
-            model = SoundStream(
-                n_filters=32,
-                D=128,
-                ratios=[8, 5, 4, 2],
-                sample_rate=16000,
-                bins=1024,
-                normalize=True,
-                causal=True,
-            )
-            model_path = '/home/evev/asap-dataset/external/YuEGP/inference/xcodec_mini_infer/final_ckpt/ckpt_00360000.pth'
-            if os.path.exists(model_path):
-                try:
-                    checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-                except TypeError:
-                    checkpoint = torch.load(model_path, map_location='cpu')
-                state = checkpoint.get('model') or checkpoint.get('state_dict') or checkpoint
-                model.load_state_dict(state, strict=False)
-                if self.verbose:
-                    print(f"Loaded XCodec checkpoint from {model_path}")
-            model = model.to(self.device)
-            model.eval()
-            return model
-        except Exception as e:
-            raise RuntimeError(f"Failed to load XCodec model: {e}")
+        model = SoundStream(
+            n_filters=32,
+            D=128,
+            ratios=[8, 5, 4, 2],
+            sample_rate=16000,
+            bins=1024,
+            normalize=True,
+            causal=True,
+        )
+        model_path = '/home/evev/asap-dataset/external/YuEGP/inference/xcodec_mini_infer/final_ckpt/ckpt_00360000.pth'
+        if os.path.exists(model_path):
+            try:
+                checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+            except TypeError:
+                checkpoint = torch.load(model_path, map_location='cpu')
+            state = checkpoint.get('model') or checkpoint.get('state_dict') or checkpoint
+            model.load_state_dict(state, strict=False)
+            if self.verbose:
+                print(f"Loaded XCodec checkpoint from {model_path}")
+        model = model.to(self.device)
+        model.eval()
+        return model
 
     def _load_yue_model(self):
         """Load YuE-s2-1B-general model (HF)"""
         model_name = "m-a-p/YuE-s2-1B-general"
-        try:
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name, 
-                torch_dtype=self.dtype, 
-                trust_remote_code=True
-            ).to(self.device)
-            model.eval()
-            return model
-        except Exception as e:
-            raise RuntimeError(f"Failed to load YuE-s2 model: {e}")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, 
+            torch_dtype=self.dtype, 
+            trust_remote_code=True
+        ).to(self.device)
+        model.eval()
+        return model
 
     def _load_mm_tokenizer(self):
         """Load mm tokenizer for special/control tokens"""
         tok_path = "/home/evev/asap-dataset/external/YuEGP/inference/mm_tokenizer_v0.2_hf/tokenizer.model"
-        try:
-            tokenizer = _MMSentencePieceTokenizer(tok_path)
-            return tokenizer
-        except Exception as e:
-            raise RuntimeError(f"Failed to load mm tokenizer: {e}")
+        tokenizer = _MMSentencePieceTokenizer(tok_path)
+        return tokenizer
 
     class _BlockTokenAllowRangeProcessor(LogitsProcessor):
         def __init__(self, start_id, end_id):
@@ -124,7 +115,6 @@ class YuEGPGenerator:
 
         def __call__(self, input_ids, scores):
             vocab = scores.size(-1)
-            # 防御式裁剪（防止 start/end 越界）
             s = max(self.start_id, 0)
             e = min(self.end_id, vocab - 1)
             if s > 0:
@@ -142,7 +132,6 @@ class YuEGPGenerator:
         """
         assert num_frames > 0, "num_frames must be positive"
         
-        # 添加进度提示
         if self.verbose:
             print(f"Starting generation of {num_frames} frames ({num_frames * 7} tokens)...")
 
@@ -168,13 +157,10 @@ class YuEGPGenerator:
         prompt_ids = torch.as_tensor(prompt_ids, device=self.device).unsqueeze(0)  # (1, L)
         len_prompt = prompt_ids.shape[-1]
 
-        # 显式提供 attention_mask，避免警告并确保行为可控
         attention_mask = torch.ones_like(prompt_ids, dtype=torch.long)
 
         safe_top_k = int(top_k) if isinstance(top_k, (int, np.integer)) and top_k > 0 else 0
         
-        # 添加进度条
-        from tqdm import tqdm
         total_steps = num_frames * 7
         pbar = tqdm(total=total_steps, desc="Generating tokens", leave=False)
 
@@ -182,11 +168,9 @@ class YuEGPGenerator:
         with torch.no_grad():
             for t in range(num_frames):
                 cb0_t = torch.as_tensor([[int(cb0_ids[t])]], device=self.device)
-                # 追加一帧的 cb0，并同时扩展 attention_mask
                 prompt_ids = torch.cat([prompt_ids, cb0_t], dim=1)
                 attention_mask = torch.ones_like(prompt_ids, dtype=torch.long)
 
-                # 逐步生成每一位（step=1..7），并按位限域到对应码本分段
                 for step in range(1, 8):
                     start_id = int(self.cb0_start + step * self.codec_manipulator.codebook_size)
                     end_id = int(start_id + self.codec_manipulator.codebook_size - 1)
@@ -197,42 +181,32 @@ class YuEGPGenerator:
                         self._BlockTokenAllowRangeProcessor(start_id, end_id)
                     ])
 
-                    try:
-                        out = self.model.generate(
-                            input_ids=prompt_ids,
-                            attention_mask=attention_mask,
-                            min_new_tokens=1,
-                            max_new_tokens=1,
-                            do_sample=True,                       # 打开采样
-                            temperature=float(temperature),        # 温度
-                            top_k=safe_top_k,                      # top-k (0表示不启用top-k裁剪)
-                            top_p=0.9,                            # 添加top-p采样
-                            repetition_penalty=1.1,               # 添加重复惩罚
-                            eos_token_id=self.mmtokenizer.eoa,
-                            pad_token_id=self.mmtokenizer.eoa,
-                            logits_processor=allow_processor,      # 当前位的分段限域
-                            use_cache=True,
-                        )
-                    except Exception as gen_err:
-                        pbar.close()
-                        print(f"[Error] generate failed at frame {t}, step {step}: {gen_err}")
-                        print(f"  step-range used: [{start_id}, {end_id}], model_vocab={self.model_vocab_size}")
-                        return []
+                    out = self.model.generate(
+                        input_ids=prompt_ids,
+                        attention_mask=attention_mask,
+                        min_new_tokens=1,
+                        max_new_tokens=1,
+                        do_sample=True,
+                        temperature=float(temperature),
+                        top_k=safe_top_k,
+                        top_p=0.9,
+                        repetition_penalty=1.1,
+                        eos_token_id=self.mmtokenizer.eoa,
+                        pad_token_id=self.mmtokenizer.eoa,
+                        logits_processor=allow_processor,
+                        use_cache=True,
+                    )
 
-                    # 应该严格只新增1个token
                     if out.shape[1] - prompt_ids.shape[1] != 1:
                         pbar.close()
                         print(f"[Warn] Unexpected new token count at frame {t}, step {step}: {out.shape[1]-prompt_ids.shape[1]}")
                         return []
 
-                    # 更新 prompt 与 mask
                     prompt_ids = out
                     attention_mask = torch.ones_like(prompt_ids, dtype=torch.long)
                     
-                    # 更新进度条
                     pbar.update(1)
                     
-                    # 每100步清理一次GPU缓存
                     if (t * 7 + step) % 100 == 0:
                         torch.cuda.empty_cache()
         
@@ -256,26 +230,21 @@ class YuEGPGenerator:
             if self.verbose:
                 print(f"Processing {len(token_ids)} tokens")
                 print(f"Token range: {min(token_ids)} - {max(token_ids)}")
-                # 添加token分布分析
                 unique_tokens = len(set(token_ids))
                 print(f"Unique tokens: {unique_tokens}/{len(token_ids)} ({unique_tokens/len(token_ids)*100:.1f}% diversity)")
                 
-                # 分析每个码本的token分布
                 if len(token_ids) >= 8:
                     for cb in range(8):
-                        cb_tokens = token_ids[cb::8]  # 每8个取一个
+                        cb_tokens = token_ids[cb::8]
                         cb_unique = len(set(cb_tokens))
                         print(f"  Codebook {cb}: {cb_unique}/{len(cb_tokens)} unique tokens")
             
-            # 必须是从cb0开始的扁平序列（长度=8*T）
             tokens_np = self.codec_manipulator.ids2npy(np.array(token_ids))
             if self.verbose:
                 print(f"CodecManipulator conversion successful: {tokens_np.shape}")  # (8, T)
                 print(f"Tokens numpy shape: {tokens_np.shape}, dtype: {tokens_np.dtype}")
                 print(f"Tokens numpy range: [{tokens_np.min()}, {tokens_np.max()}]")
             
-            # Convert to tensor and decode - 修复维度转换
-            # XCodec decode期望格式: [n_quantizers, batch, time] = (8, 1, T)
             tokens_tensor = torch.tensor(tokens_np, device=self.device, dtype=torch.long).unsqueeze(1)  # (8, T) -> (8, 1, T)
             if self.verbose:
                 print(f"Tokens tensor shape before decode: {tokens_tensor.shape}")
@@ -309,7 +278,6 @@ class YuEGPGenerator:
         """
         if self.verbose:
             print(f"Generating audio (stage2 TF) with target_frames={target_length}, cb0_seed={cb0_seed}, top_k={top_k}, T={temperature}")
-        # 逐帧生成 (每帧8个token)
         token_ids = self.generate_stage2_tokens_unconditional(
             num_frames=target_length,
             cb0_seed=cb0_seed,
@@ -318,7 +286,6 @@ class YuEGPGenerator:
         )
         if not token_ids:
             return None
-        # 解码为音频
         audio = self.tokens_to_audio(token_ids)
         return audio
 
@@ -329,7 +296,7 @@ def batch_unconditional_generation(output_dir: str, top_k_values: List[int],
     """Generate multiple audio samples for different top_k values
     
     Args:
-        target_length: 帧数（50fps），750≈15秒
+        target_length: frame（50fps），750≈15s
     """
     
     # Create output directory
@@ -350,25 +317,21 @@ def batch_unconditional_generation(output_dir: str, top_k_values: List[int],
         
         success_count = 0
         for i in range(num_samples_per_k):
-            try:
-                # Generate audio (top_k/temperature 对stage2 TF不起作用，保留参数兼容)
-                audio = generator.generate_audio(
-                    top_k=top_k, 
-                    target_length=target_length,  # 帧数
-                    temperature=temperature,
-                    cb0_seed="mid",               # 可选: "zero"/"mid"/"random"
-                )
-                
-                if audio is not None and len(audio) > 16000:  # 至少1秒
-                    sr = 16000
-                    out_path = os.path.join(k_dir, f"sample_{i+1}.wav")
-                    torchaudio.save(out_path, audio.unsqueeze(0), sample_rate=sr)
-                    print(f"Saved: {out_path}")
-                    success_count += 1
-                else:
-                    print(f"Failed to generate sample {i+1} for top_k={top_k} (audio too short or None)")
-            except Exception as e:
-                print(f"Error generating sample {i+1} for top_k={top_k}: {e}")
+            audio = generator.generate_audio(
+                top_k=top_k, 
+                target_length=target_length,
+                temperature=temperature,
+                cb0_seed="mid",
+            )
+            
+            if audio is not None and len(audio) > 16000:
+                sr = 16000
+                out_path = os.path.join(k_dir, f"sample_{i+1}.wav")
+                torchaudio.save(out_path, audio.unsqueeze(0), sample_rate=sr)
+                print(f"Saved: {out_path}")
+                success_count += 1
+            else:
+                print(f"Failed to generate sample {i+1} for top_k={top_k} (audio too short or None)")
 
             pbar.update(1)
         
