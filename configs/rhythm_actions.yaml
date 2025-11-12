@@ -7,8 +7,8 @@ actions:
   #       selection_type: "random"
   #       operation: "duration_change"
   #       parameters:
-  #         source_durations: [0.25]  # 四分音符
-  #         target_duration: 0.125    # 八分音符
+  #         source_durations: [0.25]
+  #         target_duration: 0.125
   #         note_counts:
   #           - count: 1
   #             save_suffix: "_rhythm1_1_step1_n1"
@@ -24,7 +24,7 @@ actions:
   #       operation: "duration_change"
   #       parameters:
   #         source_durations: [0.25]
-  #         target_duration: 0.0625   # 十六分音符
+  #         target_duration: 0.0625
   #         note_counts:
   #           - count: 1
   #             save_suffix: "_rhythm1_1_step2_n1"
@@ -139,7 +139,7 @@ actions:
   #       selection_type: "random"
   #       operation: "density_adjust"
   #       parameters:
-  #         density_change: "halve"  # 密度减半
+  #         density_change: "halve"
   #         section_ratios:
   #           - ratio: 0.1
   #             save_suffix: "_rhythm1_3_step1_r10"
@@ -154,7 +154,7 @@ actions:
   #       selection_type: "random"
   #       operation: "density_adjust"
   #       parameters:
-  #         density_change: "double"  # 密度加倍
+  #         density_change: "double"
   #         section_ratios:
   #           - ratio: 0.1
   #             save_suffix: "_rhythm1_3_step2_r10"
@@ -226,4 +226,4 @@ actions:
       #         save_suffix: "_rhythm1_4_step2_r30"
       #       - ratio: 0.4
       #         save_suffix: "_rhythm1_4_step2_r40"
-      #     pattern_interval: 0.125  # 八分音符间隔
+      #     pattern_interval: 0.125
