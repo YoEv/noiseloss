@@ -6,7 +6,7 @@ actions:
         selection_type: "random"
         operation: "semitone_pitch_change"
         parameters:
-          shifts: [-1, 1]  # 半音变化范围
+          shifts: [-1, 1]  # half note shift range
           modifications:
             - percentage: 10
               save_suffix: "_pitch1_1_step1_semi10"
@@ -23,7 +23,7 @@ actions:
         selection_type: "random"
         operation: "octave_pitch_change"
         parameters:
-          shifts: [-12, 12]  # 八度变化范围
+          shifts: [-12, 12]  # octave shift range
           modifications:
             - percentage: 10
               save_suffix: "_pitch1_2_step1_oct10"
@@ -40,7 +40,7 @@ actions:
         selection_type: "random"
         operation: "diatonic_pitch_change"
         parameters:
-          shifts: [-2, 2]  # 全音变化范围
+          shifts: [-2, 2]  # whole note shift range
           modifications:
             - percentage: 10
               save_suffix: "_pitch1_3_step1_dia10"
