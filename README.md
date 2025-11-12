@@ -1,95 +1,109 @@
 # NoiseLoss
 
-**NoiseLoss** probes how music language models react when coherence is broken.  
-We inject structured perturbations (noise, deletions, shuffles), trace token-level loss and gradients, and map the dynamics of **Peak → Assimilation → Recovery**.
+**NoiseLoss** probes how music language models react when coherence is disrupted.
+We inject structured perturbations—noise, deletions, and shuffles—trace token-level loss and gradients, and map the dynamics of **Peak → Assimilation → Recovery**.
 
-> When noise enters, loss spikes.  
-> When adaptation follows, loss falls.  
+> When noise enters, loss spikes.
+> When adaptation follows, loss falls.
 > Between them lies the trace of forgetting.
 
-- **Project**: https://noiseloss.github.io  
-- **Paper (PDF)**: https://noiseloss.github.io/paper/paper.pdf
+* **Project**: [noiseloss.github.io](https://noiseloss.github.io)
+* **Paper (PDF)**: [noiseloss.github.io/paper/paper.pdf](https://noiseloss.github.io/paper/paper.pdf)
+
+---
 
 ## Overview
 
 This repository contains the code and scripts used to:
-- Generate perturbed and reference audio/token sequences for Music LLMs.
-- Compute per-token **likelihood (NLL)** and extract **gradients** on activations/parameters.
-- Visualize layer/time behaviors showing *context amnesia* under localized noise.
 
-Our experiments reveal that **likelihood can deceptively improve** after the model adapts to injected noise, calling for a rethink of likelihood-based evaluation in Music LLMs.
+* Generate perturbed and reference audio/token sequences for Music LLMs.
+* Compute per-token **likelihood (NLL)** and extract **gradients** on activations and parameters.
+* Visualize layer- and time-wise behaviors to reveal *context amnesia* under localized noise.
+
+Our experiments show that **likelihood can deceptively improve** after a model adapts to injected noise—calling for a rethink of likelihood-based evaluation in Music LLMs.
+
+---
 
 ## Repository Layout
 
 ```
 noiseloss/
-├── dataselect/        # 数据筛选与抽样脚本（MIDI/音频过滤、节奏/时长选择等）
-├── Dataset/           # 数据集素材（本地放置；建议 .gitignore）
-├── external/          # 第三方依赖/外部工具的封装或子模块
-├── Loss/              # 与损失比较相关的脚本与产物（历史目录，保留）
-├── losscal/           # 计算/校准损失的脚本（历史目录，保留）
-├── LossPlot/          # 与损失主题直接相关的图表脚本或成品图（历史目录，保留）
-├── plot/              # 通用绘图脚本与结果（折线、箱线、直方图等）
-├── processors/        # 实验处理入口（扰动、生成、度量、phase 分阶段脚本等）
-└── tools/             # 实用工具（转码、tokenizer、EnCodec/FFmpeg/SOX 等）
+├── dataselect/        # Data selection and sampling scripts (MIDI/audio filtering, rhythm/length selection, etc.)
+├── Dataset/           # Dataset materials (local only; recommended to .gitignore)
+├── external/          # Wrappers or submodules for third-party dependencies/tools
+├── Loss/              # Legacy scripts and artifacts related to loss comparison
+├── losscal/           # Legacy scripts for loss computation/calibration
+├── LossPlot/          # Legacy directory for loss-related figures and plotting scripts
+├── plot/              # General plotting scripts and results (line, box, histogram, etc.)
+├── processors/        # Experimental pipelines (perturbation, generation, measurement, phase-by-phase scripts)
+└── tools/             # Utility tools (transcoding, tokenizer, EnCodec/FFmpeg/SOX, etc.)
 ```
+
+---
 
 ## Experimental Phases
 
-**Phase 1–4**  
-基础扰动与位置/长度扫描：固定与随机注入、不同噪声颜色、替换与置乱。
+**Phase 1–4**
+Basic perturbations and position/length scanning: fixed vs. random injections, noise color variations, token replacement, and order shuffling.
 
-**Phase 5**  
-区域化分析（*Peak / Assimilation / Recovery*）：  
-- 白/粉/棕噪、token 删除与顺序打乱  
-- 条件/非条件生成对比  
-- 统计分布（箱线、提琴图）、跨曲目聚合
+**Phase 5**
+Regional analysis (*Peak / Assimilation / Recovery*):
 
-**Phase 6（当前）**  
-梯度协议：  
-- 逐 token 前向 + 逐 token 反传，提取 **∇activation** 与 **∇parameter**  
-- 分模块（Attention Q/K/V/O、FFN、LayerNorm）与分层热力图  
-- 观察从尖峰到适应再到恢复的梯度通量演化
+* White / pink / brown noise, token deletion and shuffling
+* Conditional vs. unconditional generation
+* Distribution statistics (box/violin plots), cross-piece aggregation
+
+**Phase 6 (Current)**
+Gradient protocol:
+
+* Per-token forward and backward passes, extracting **∇activation** and **∇parameter**
+* Heatmaps by module (Attention Q/K/V/O, FFN, LayerNorm) and by layer
+* Observing gradient flux from spike → adaptation → recovery
+
+---
 
 ## Quick Start
 
+**1) Regionalized loss curve (Phase 5)**
 
-**1) 区域化损失曲线（Phase 5）**
 ```bash
 python processors/phase5/phase5_loss_curve_3area.py
-````
+```
 
-**2) 时间轴上的损失对比可视化**
+**2) Loss comparison over time**
 
 ```bash
 python plot/plot_loss_time_in.py
 ```
 
-**3) Unconditional / Conditional 对比（示例）**
+**3) Unconditional / Conditional comparison (example)**
 
 ```bash
 python plot/plot_comparison_unconditional.py
 python plot/plot_conditional.py
 ```
 
-**4) 常用工具（示例）**
+**4) Common utilities (examples)**
 
 ```bash
-# 音频批量转码
+# Batch audio transcoding
 python tools/convert_audio_ffmpeg.py --in_dir Dataset/raw --out_dir Dataset/wav --sr 32000
 
-# 计算 EnCodec receptive field
+# Calculate EnCodec receptive field
 python tools/encodec_receptive_field_calculator.py
 ```
 
+---
+
 ## Notes & Practices
 
-* **Right shift**：per-token NLL 需与下一 token 对齐（`logits[..., t]` 对 `target[..., t+1]`）。
-* **逐 token 反传**：使用 `retain_graph=True`，对窗口外 token 可子采样以加速。
-* **Hook 点**：在 residual/中间层输出处 `retain_grad()` 以读取 **∇h**。
-* **参数分桶**：Attention（Q/K/V/O）、FFN（W1/W2/偏置）、LayerNorm（γ/β）分别统计；既存逐层×模块，也存逐头。
-* **复现实验**：保存 `meta.json`（Git 提交哈希、配置、包版本）、把矩阵底稿以 `npy/parquet` 落盘。
+* **Right shift**: Per-token NLL must align with the next token (`logits[..., t]` vs. `target[..., t+1]`).
+* **Per-token backward**: Use `retain_graph=True`; subsample tokens outside the target window for efficiency.
+* **Hook points**: Use `retain_grad()` at residual/intermediate outputs to capture **∇h**.
+* **Parameter bucketing**: Track separately for Attention (Q/K/V/O), FFN (W1/W2/bias), and LayerNorm (γ/β); store both layer×module and per-head statistics.
+* **Reproducibility**: Save `meta.json` (Git hash, config, package versions) and all result matrices as `npy`/`parquet`.
 
+---
 
 ## Citation
 
@@ -116,12 +130,12 @@ Xiaosha Li¹, Chun Liu², Ziyu Wang³⁴
 ⁴ Mohamed bin Zayed University of Artificial Intelligence (MBZUAI), Abu Dhabi, UAE
 Contact: `xiaosha@gatech.edu`, `chun.liu@bytedance.com`, `ziyu.wang@nyu.edu`
 
+---
 
 ## License
 
-This repository is for research and academic use.
+This repository is intended for research and academic use.
 For other uses, please contact the authors.
 
 > Loss can reveal more than accuracy:
 > it tells when a model listens, when it forgets, and when it learns to live with noise.
-
