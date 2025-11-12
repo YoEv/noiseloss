@@ -25,23 +25,23 @@ def load_model(device):
 
 def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_invalid=None):
     """
-    计算指定片段的per-token NLL
+    Compute per-token NLL for a specified segment
     
     Args:
-        model: MusicGen模型
-        tokens: LongTensor [B, T, C] 或 [B, C, T] 取决于实现（C=codebooks）
-        start: 开始位置
-        L: 片段长度
-        codebooks: codebook配置
-        mask_invalid: 无效位置的mask
+        model: MusicGen model
+        tokens: LongTensor [B, T, C] or [B, C, T] depending on implementation (C=codebooks)
+        start: start position
+        L: segment length
+        codebooks: codebook configuration
+        mask_invalid: mask for invalid positions
     
     Returns:
         per-token NLL (mean over codebooks, masked), scalar
     """
-    # 假设tokens形状为 [B, C, K, T]（根据MusicGen的实际格式）
+    # Assume tokens shape is [B, C, K, T] (per MusicGen format)
     if len(tokens.shape) == 4:
         B, C, K, T = tokens.shape
-        # 重新排列为 [B, T, C*K] 用于计算
+        # Rearrange to [B, T, C*K] for computation
         tokens_reshaped = tokens.permute(0, 3, 1, 2).contiguous().view(B, T, C*K)
     else:
         B, T, C = tokens.shape
@@ -50,45 +50,45 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
     ce = CrossEntropyLoss(reduction='none')
     losses = []
     
-    # 对每个codebook单独计算CE，再平均
+    # Compute CE per codebook and average
     for c in range(C):
         for k in range(K):
-            # 取第c个码本第k层的序列 [B, T]
+            # Take sequence for codebook c, layer k: [B, T]
             if len(tokens.shape) == 4:
                 seq_ck = tokens[:, c, k, :]  # [B, T]
             else:
                 seq_ck = tokens[:, :, c]  # [B, T]
             
-            # teacher-forcing：预测t的目标是seq_ck[:, t]
-            # 构造输入和目标
+            # Teacher forcing: target at t is seq_ck[:, t]
+            # Build input and target
             input_seq = seq_ck[:, :-1]  # [B, T-1]
             target_seq = seq_ck[:, 1:]  # [B, T-1]
             
-            logits_ck = None  # 新增：初始化，避免后续未定义引用
-            # 模型前向传播
+            logits_ck = None  # Initialize to avoid undefined reference
+            # Model forward
             with torch.no_grad():
-                # 这里需要根据实际模型API调整
-                # 假设模型接受token输入并返回logits
+                # Adjust to actual model API as needed
+                # Assume model takes token input and returns logits
                 if len(tokens.shape) == 4:
-                    # 使用完整的多codebook输入
+                    # Use full multi-codebook input
                     input_tokens = tokens[:, :, :, :-1]  # [B, C, K, T-1]
                     input_reshaped = input_tokens.view(B, C*K, -1)  # [B, C*K, T-1]
                     outputs = model.decoder(input_reshaped)
-                    logits = getattr(outputs, "logits", outputs)  # 期望3维
+                    logits = getattr(outputs, "logits", outputs)  # expect 3D
 
-                    # 统一标准到 [B, time, vocab]
+                    # Normalize to [B, time, vocab]
                     if logits.dim() != 3:
                         raise ValueError(f"Unsupported logits dim {logits.dim()} for tokens shape {tuple(tokens.shape)}")
                     ck_total = C * K
                     expected_t = T - 1
                     expected_full = expected_t * ck_total
-                    b, d1, d2 = logits.shape  # 候选 [B, time, vocab] 或 [B, vocab, time]
+                    b, d1, d2 = logits.shape  # candidates [B, time, vocab] or [B, vocab, time]
 
                     def is_time(n: int) -> bool:
                         return (n == expected_t) or (n == expected_full) or (n % ck_total == 0 and (n // ck_total) == expected_t)
 
                     if is_time(d1):
-                        pass  # 已经是 [B, time, vocab]
+                        pass  # already [B, time, vocab]
                     elif is_time(d2):
                         logits = logits.transpose(1, 2)  # [B, time, vocab]
                         b, d1, d2 = logits.shape
@@ -98,7 +98,7 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
                     seq_len = d1
                     vocab_sz = d2
 
-                    # 将logits对齐到当前(c,k)码本的时间序列
+                    # Align logits to current (c,k) codebook time series
                     if seq_len == expected_t:
                         logits_ck = logits  # [B, T-1, vocab]
                     elif seq_len == expected_full:
@@ -112,9 +112,9 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
                         else:
                             raise ValueError(f"Unsupported logits shape {tuple(logits.shape)} for tokens shape {tuple(tokens.shape)}")
                 else:
-                    # 简化版本：标准化为 [B, T-1, vocab]
+                    # Simplified: normalize to [B, T-1, vocab]
                     outputs = model.decoder(input_seq.unsqueeze(1))
-                    logits_raw = getattr(outputs, "logits", outputs)  # 可能是 [B, T-1, V] 或 [B, V, T-1] 或 [B, T-1]
+                    logits_raw = getattr(outputs, "logits", outputs)  # Possibly [B, T-1, V] or [B, V, T-1] or [B, T-1]
                     if logits_raw.dim() == 3:
                         if logits_raw.size(1) != target_seq.size(1) and logits_raw.size(2) == target_seq.size(1):
                             logits_ck = logits_raw.transpose(1, 2)  # [B, T-1, V]
@@ -125,26 +125,26 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
                     else:
                         raise ValueError(f"Unexpected logits_raw shape {tuple(logits_raw.shape)}")
 
-            # 只评估窗口[start, start+L)内的NLL；若logits_ck无效或窗口无效则跳过
+            # Evaluate NLL only within window [start, start+L); skip if logits_ck invalid or window invalid
             if logits_ck is None:
                 continue
 
             sl = start
             sr = min(start + L, target_seq.size(1))
 
-            # 最后一里路对齐：若 logits 的时间维是 target 的整倍数（通常是 C*K 倍），按 (c,k) 偏移抽取
+            # Final alignment: if logits time dim is integer multiple of target (typically C*K), select by (c,k) offset
             if logits_ck.size(1) != target_seq.size(1):
                 ck_total = C * K
                 if logits_ck.size(1) % target_seq.size(1) == 0 and (logits_ck.size(1) // target_seq.size(1)) == ck_total:
                     expected_t = target_seq.size(1)
                     offset = c * K + k
-                    # 在全局时间轴上用 stride=ck_total 抽取 (c,k) 子序列
+                    # On global time axis, extract (c,k) subsequence with stride=ck_total
                     time_index = torch.arange(expected_t, device=logits_ck.device) * ck_total + offset  # [T-1]
                     logits_ck = logits_ck.index_select(dim=1, index=time_index)  # [B, T-1, vocab]
                 else:
                     raise ValueError(f"Final align failed: logits_ck.time={logits_ck.size(1)} vs target.time={target_seq.size(1)}, C*K={ck_total}")
 
-            # 将 sr 再裁剪到 logits_ck 的时间长度，避免越界
+            # Clip sr to logits_ck time length to avoid out-of-bounds
             max_time = logits_ck.size(1)
             sr = min(sr, max_time)
 
@@ -154,20 +154,20 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
             logits_win = logits_ck[:, sl:sr, :]  # [B, L?, vocab_size]
             target_win = target_seq[:, sl:sr]    # [B, L]
 
-            # 新增：窗口级时间维对齐，确保 logits_win 与 target_win 的长度一致
+            # Window-level time alignment to ensure logits_win and target_win have equal length
             if logits_win.size(1) != target_win.size(1):
                 lw = logits_win.size(1)
                 tw = target_win.size(1)
                 ck_total = C * K
                 if tw > 0 and lw % tw == 0:
                     ratio = lw // tw
-                    offset = (c * K + k) % max(ratio, 1)  # 当前 (c,k) 的偏移
+                    offset = (c * K + k) % max(ratio, 1)  # current (c,k) offset
                     idx = torch.arange(tw, device=logits_win.device) * ratio + offset
                     idx = idx.clamp_max(lw - 1)
                     logits_win = logits_win.index_select(dim=1, index=idx)  # [B, tw, vocab]
-                    # target_win 保持 [B, tw]
+                    # keep target_win as [B, tw]
                 else:
-                    # 兜底：两者裁剪到相同最小长度
+                    # Fallback: clip both to the same minimum length
                     min_len = min(lw, tw)
                     logits_win = logits_win[:, :min_len, :]
                     target_win = target_win[:, :min_len]
@@ -175,16 +175,16 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
             V = logits_win.size(-1)
             Lw = logits_win.size(1)
 
-            # 计算交叉熵（按照真实窗口长度 Lw）
+            # Compute cross entropy (using actual window length Lw)
             loss_tok = ce(logits_win.reshape(-1, V), target_win.reshape(-1))
             loss_tok = loss_tok.view(B, Lw)  # [B, Lw]
             
             if mask_invalid is not None:
-                # mask_invalid: [B, T, C]，True表示有效 或 [B, C, K, T]
+                # mask_invalid: [B, T, C] (True means valid) or [B, C, K, T]
                 if len(mask_invalid.shape) == 4:
-                    m = mask_invalid[:, c, k, 1:][:, sl:sl+Lw]  # 对齐target
+                    m = mask_invalid[:, c, k, 1:][:, sl:sl+Lw]  # align to target
                 else:
-                    m = mask_invalid[:, 1:, c][:, sl:sl+Lw]     # 对齐target
+                    m = mask_invalid[:, 1:, c][:, sl:sl+Lw]     # align to target
                 loss_tok = loss_tok.masked_fill(~m, 0.0)
                 denom = m.float().sum().clamp_min(1.0)
                 loss_c = loss_tok.sum() / denom
@@ -193,7 +193,7 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
             
             losses.append(loss_c)
     
-    # 多码本平均（或自定义加权）
+    # Average over codebooks (or custom weighting)
     if losses:
         loss = torch.stack(losses).mean()
         return loss.item()
@@ -203,21 +203,21 @@ def nll_segment_teacher_forcing(model, tokens, start, L, codebooks='auto', mask_
 @torch.no_grad()
 def generate_hole(model, prefix_tokens, L, temperature=0.7, codebooks='auto'):
     """
-    生成缺失片段的tokens
+    Generate tokens for a missing segment
     
     Args:
-        model: MusicGen模型
-        prefix_tokens: [B, t0, C] 前缀tokens
-        L: 生成长度
-        temperature: 生成温度
-        codebooks: codebook配置
+        model: MusicGen model
+        prefix_tokens: [B, t0, C] prefix tokens
+        L: generation length
+        temperature: generation temperature
+        codebooks: codebook configuration
     
     Returns:
-        gen_tokens: [B, L, C] 生成的tokens
+        gen_tokens: [B, L, C] generated tokens
     """
     if len(prefix_tokens.shape) == 4:
         B, C, K, t0 = prefix_tokens.shape
-        # 重新排列为适合生成的格式
+        # Rearrange to a format suitable for generation
         cur = prefix_tokens.clone()
     else:
         B, t0, C = prefix_tokens.shape
@@ -227,19 +227,19 @@ def generate_hole(model, prefix_tokens, L, temperature=0.7, codebooks='auto'):
     gen = []
     
     for step in range(L):
-        # 模型前向传播获取下一步分布
+        # Forward pass to get next-step distribution
         if len(cur.shape) == 4:
             input_reshaped = cur.view(B, C*K, -1)
             outputs = model.decoder(input_reshaped)
             logits = outputs.logits  # [B, T, vocab_size]
             
-            # 取最后一步的logits
+            # Take logits at the last step
             next_logits = logits[:, -1, :]  # [B, vocab_size]
         else:
             outputs = model.decoder(cur)
             next_logits = outputs.logits[:, -1, :]  # [B, vocab_size]
         
-        # 采样下一个token
+        # Sample next token
         if temperature == 0.0:
             next_tokens = torch.argmax(next_logits, dim=-1)  # [B]
         else:
@@ -248,7 +248,7 @@ def generate_hole(model, prefix_tokens, L, temperature=0.7, codebooks='auto'):
         
         # 添加到序列
         if len(cur.shape) == 4:
-            # 需要扩展到多codebook格式
+            # Need to expand to multi-codebook format
             next_tokens_expanded = next_tokens.unsqueeze(1).unsqueeze(1).unsqueeze(1)  # [B, 1, 1, 1]
             next_tokens_expanded = next_tokens_expanded.expand(B, C, K, 1)
             cur = torch.cat([cur, next_tokens_expanded], dim=-1)
@@ -269,24 +269,24 @@ def generate_hole(model, prefix_tokens, L, temperature=0.7, codebooks='auto'):
 def eval_gap_fill(model, processor, ori_audio_path, filled_audio_path, device,
                  t0_sec=5.0, L_tokens=50, temperature=0.0, mask_invalid=None):
     """
-    计算Δ = gen_loss_with_blank - ori_loss
+    Compute Δ = gen_loss_with_blank - ori_loss
     
     Args:
-        model: MusicGen模型
-        processor: 音频处理器
-        ori_audio_path: 原始音频路径
-        filled_audio_path: 填充后音频路径
-        device: 设备
-        t0_sec: 开始位置（秒）
-        L_tokens: 片段长度（tokens）
-        temperature: 生成温度
-        mask_invalid: 无效位置mask
+        model: MusicGen model
+        processor: audio processor
+        ori_audio_path: path to original audio
+        filled_audio_path: path to filled audio
+        device: device
+        t0_sec: start position (seconds)
+        L_tokens: segment length (tokens)
+        temperature: generation temperature
+        mask_invalid: invalid position mask
     
     Returns:
-        包含ori_nll, gen_nll, delta的字典
+        dict containing ori_nll, gen_nll, delta
     """
     try:
-        # 加载并编码原始音频
+        # Load and encode original audio
         if device == "cuda":
             ori_audio, sr = audio_read(ori_audio_path)
             ori_audio = ori_audio.mean(dim=0, keepdim=True)
@@ -297,23 +297,23 @@ def eval_gap_fill(model, processor, ori_audio_path, filled_audio_path, device,
             ori_audio, sr = librosa.load(ori_audio_path, sr=32000, mono=True)
             ori_audio = torch.tensor(ori_audio).unsqueeze(0).to(device)
         
-        # 编码为tokens
+        # Encode to tokens
         with torch.no_grad():
             ori_encoded = model.audio_encoder.encode(ori_audio.unsqueeze(0))
             ori_tokens = ori_encoded.audio_codes.long()  # [B, C, K, T]
         
         B, C, K, T = ori_tokens.shape
         
-        # 计算token位置
+        # Calculate token position
         tokens_per_sec = 32000 // 320  # 约100 tokens/sec
         t0 = int(t0_sec * tokens_per_sec)
         
-        assert t0 + L_tokens <= T, f"片段超出音频长度: {t0 + L_tokens} > {T}"
+        assert t0 + L_tokens <= T, f"Segment exceeds audio length: {t0 + L_tokens} > {T}"
         
-        # 1) 原片段NLL（teacher-forcing）
+        # 1) NLL on original segment (teacher forcing)
         nll_ori = nll_segment_teacher_forcing(model, ori_tokens, t0, L_tokens, mask_invalid=mask_invalid)
         
-        # 2) 加载填充后的音频
+        # 2) Load filled audio
         if device == "cuda":
             filled_audio, sr2 = audio_read(filled_audio_path)
             filled_audio = filled_audio.mean(dim=0, keepdim=True)
@@ -324,12 +324,12 @@ def eval_gap_fill(model, processor, ori_audio_path, filled_audio_path, device,
             filled_audio, sr2 = librosa.load(filled_audio_path, sr=32000, mono=True)
             filled_audio = torch.tensor(filled_audio).unsqueeze(0).to(device)
         
-        # 编码填充后的音频
+        # Encode filled audio
         with torch.no_grad():
             filled_encoded = model.audio_encoder.encode(filled_audio.unsqueeze(0))
             filled_tokens = filled_encoded.audio_codes.long()  # [B, C, K, T']
         
-        # 3) 对填充后音频中的生成片段做teacher-forcing NLL
+        # 3) Teacher-forcing NLL on generated segment within filled audio
         nll_gen_ctx = nll_segment_teacher_forcing(model, filled_tokens, t0, L_tokens, mask_invalid=mask_invalid)
         
         delta = nll_gen_ctx - nll_ori
@@ -345,15 +345,15 @@ def eval_gap_fill(model, processor, ori_audio_path, filled_audio_path, device,
         }
         
     except Exception as e:
-        print(f"评估gap filling时出错: {str(e)}")
+        print(f"Error during gap filling evaluation: {str(e)}")
         return None
 
 def process_directory_comparison(ori_dir, filled_dir, output_file, model, processor, device,
                                t0_sec=5.0, L_tokens=50, temperature=0.0):
     """
-    批量比较原始音频和填充音频的loss
+    Batch-compare loss of original vs filled audio
     """
-    # 找到所有音频文件
+    # Find all audio files
     audio_files = []
     for root, dirs, files in os.walk(ori_dir):
         for f in files:
@@ -362,10 +362,10 @@ def process_directory_comparison(ori_dir, filled_dir, output_file, model, proces
                 audio_files.append(rel_path)
     
     if not audio_files:
-        print(f"在 {ori_dir} 中未找到音频文件")
+        print(f"No audio files found in {ori_dir}")
         return
     
-    print(f"找到 {len(audio_files)} 个音频文件")
+    print(f"Found {len(audio_files)} audio files")
     
     results = []
     for rel_path in audio_files:
@@ -373,10 +373,10 @@ def process_directory_comparison(ori_dir, filled_dir, output_file, model, proces
         filled_path = os.path.join(filled_dir, rel_path)
         
         if not os.path.exists(filled_path):
-            print(f"警告: 填充音频不存在 {filled_path}")
+            print(f"Warning: filled audio not found {filled_path}")
             continue
         
-        print(f"\n比较: {rel_path}")
+        print(f"\nCompare: {rel_path}")
         
         result = eval_gap_fill(
             model, processor, ori_path, filled_path, device,
@@ -386,85 +386,85 @@ def process_directory_comparison(ori_dir, filled_dir, output_file, model, proces
         if result:
             result['file_path'] = rel_path
             results.append(result)
-            print(f"  原始NLL: {result['ori_nll']:.6f}")
-            print(f"  生成NLL: {result['gen_nll']:.6f}")
-            print(f"  差异Δ: {result['delta']:.6f}")
+            print(f"  Original NLL: {result['ori_nll']:.6f}")
+            print(f"  Generated NLL: {result['gen_nll']:.6f}")
+            print(f"  Delta Δ: {result['delta']:.6f}")
     
-    # 保存结果
+    # Save results
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     # 保存为JSON
     with open(output_file.replace('.txt', '.json'), 'w') as f:
         json.dump(results, f, indent=2)
     
-    # 保存为文本格式
+    # Save as text
     with open(output_file, 'w') as f:
         f.write(f"Gap Filling Loss Comparison Results\n")
-        f.write(f"参数: t0={t0_sec}秒, L={L_tokens}tokens, temperature={temperature}\n\n")
+        f.write(f"Params: t0={t0_sec}s, L={L_tokens}tokens, temperature={temperature}\n\n")
         
         for result in results:
-            f.write(f"文件: {result['file_path']}\n")
-            f.write(f"  原始NLL: {result['ori_nll']:.8f}\n")
-            f.write(f"  生成NLL: {result['gen_nll']:.8f}\n")
-            f.write(f"  差异Δ: {result['delta']:.8f}\n\n")
+            f.write(f"File: {result['file_path']}\n")
+            f.write(f"  Original NLL: {result['ori_nll']:.8f}\n")
+            f.write(f"  Generated NLL: {result['gen_nll']:.8f}\n")
+            f.write(f"  Delta: {result['delta']:.8f}\n\n")
         
-        # 统计摘要
+        # Summary stats
         if results:
             deltas = [r['delta'] for r in results]
-            f.write(f"\n统计摘要:\n")
-            f.write(f"  总文件数: {len(results)}\n")
-            f.write(f"  平均Δ: {np.mean(deltas):.8f}\n")
-            f.write(f"  标准差: {np.std(deltas):.8f}\n")
-            f.write(f"  最小Δ: {np.min(deltas):.8f}\n")
-            f.write(f"  最大Δ: {np.max(deltas):.8f}\n")
-            f.write(f"  Δ<0的文件数: {sum(1 for d in deltas if d < 0)}\n")
-            f.write(f"  Δ>0的文件数: {sum(1 for d in deltas if d > 0)}\n")
+            f.write(f"\nSummary:\n")
+            f.write(f"  Total files: {len(results)}\n")
+            f.write(f"  Mean Δ: {np.mean(deltas):.8f}\n")
+            f.write(f"  Std Dev: {np.std(deltas):.8f}\n")
+            f.write(f"  Min Δ: {np.min(deltas):.8f}\n")
+            f.write(f"  Max Δ: {np.max(deltas):.8f}\n")
+            f.write(f"  Count Δ<0: {sum(1 for d in deltas if d < 0)}\n")
+            f.write(f"  Count Δ>0: {sum(1 for d in deltas if d > 0)}\n")
     
-    print(f"\n比较结果已保存到: {output_file}")
+    print(f"\nComparison saved to: {output_file}")
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description="比较原始音频和生成填充音频的loss差异")
+    parser = argparse.ArgumentParser(description="Compare loss between original audio and gap-filled audio")
     parser.add_argument("--ori_dir", type=str, default="MusicEval_Small_ori",
-                       help="原始音频目录")
+                       help="Directory of original audio")
     parser.add_argument("--filled_dir", type=str, default="MusicEval_Small_filled",
-                       help="填充后音频目录")
+                       help="Directory of filled audio")
     parser.add_argument("--output_file", type=str, default="gap_fill_loss_comparison.txt",
-                       help="输出结果文件")
+                       help="Output results file")
     parser.add_argument("--t0_sec", type=float, default=5.0,
-                       help="评估片段开始位置（秒）")
+                       help="Start position for evaluation (seconds)")
     parser.add_argument("--L_tokens", type=int, default=50,
-                       help="评估片段长度（tokens）")
+                       help="Segment length (tokens)")
     parser.add_argument("--temperature", type=float, default=0.0,
-                       help="生成温度（用于生成模式，通常设为0进行确定性评估）")
-    parser.add_argument("--force_cpu", action="store_true", help="强制使用CPU")
+                       help="Generation temperature (for generation mode, typically 0 for deterministic evaluation)")
+    parser.add_argument("--force_cpu", action="store_true", help="Force CPU")
     
     args = parser.parse_args()
     
-    # 设置设备
+    # Device
     device = setup_device(args.force_cpu)
-    print(f"使用设备: {device}")
+    print(f"Device: {device}")
     
-    # 加载模型
-    print("加载MusicGen模型...")
+    # Load model
+    print("Loading MusicGen model...")
     model, processor = load_model(device)
     
-    # 进行比较
+    # Compare
     results = process_directory_comparison(
         args.ori_dir, args.filled_dir, args.output_file,
         model, processor, device,
         args.t0_sec, args.L_tokens, args.temperature
     )
     
-    print(f"\n批量比较完成，共处理 {len(results)} 个文件")
+    print(f"\nBatch comparison complete: processed {len(results)} files")
     
     if results:
         deltas = [r['delta'] for r in results]
-        print(f"\n结果摘要:")
-        print(f"  平均Δ: {np.mean(deltas):.6f}")
-        print(f"  标准差: {np.std(deltas):.6f}")
-        print(f"  Δ<0的文件数: {sum(1 for d in deltas if d < 0)} ({100*sum(1 for d in deltas if d < 0)/len(deltas):.1f}%)")
-        print(f"  Δ>0的文件数: {sum(1 for d in deltas if d > 0)} ({100*sum(1 for d in deltas if d > 0)/len(deltas):.1f}%)")
+        print(f"\nSummary:")
+        print(f"  Mean Δ: {np.mean(deltas):.6f}")
+        print(f"  Std Dev: {np.std(deltas):.6f}")
+        print(f"  Count Δ<0: {sum(1 for d in deltas if d < 0)} ({100*sum(1 for d in deltas if d < 0)/len(deltas):.1f}%)")
+        print(f"  Count Δ>0: {sum(1 for d in deltas if d > 0)} ({100*sum(1 for d in deltas if d > 0)/len(deltas):.1f}%)")
 
 if __name__ == "__main__":
     main()

@@ -213,7 +213,7 @@ def collect_group_results(ori_dir, noise_pattern):
             aggregated["bumped"].append(res["bumped_avg_diff"])
             aggregated["compromised"].append(res["compromised_avg_diff"])
             aggregated["regression"].append(res["regression_avg_diff"])
-        print(f"[collect] {os.path.basename(ori_dir)} tk{tk}: 缺失噪声文件={missing}, "
+        print(f"[collect] {os.path.basename(ori_dir)} tk{tk}: missing noise files={missing}, "
               f"bumped={len(aggregated['bumped'])}, compromised={len(aggregated['compromised'])}, regression={len(aggregated['regression'])}")
     return aggregated
 

@@ -213,7 +213,7 @@ def collect_group_results(ori_dir, noise_pattern):
             aggregated["bumped"].append(res["bumped_avg_diff"])
             aggregated["compromised"].append(res["compromised_avg_diff"])
             aggregated["regression"].append(res["regression_avg_diff"])
-        print(f"[collect] {os.path.basename(ori_dir)} tk{tk}: 缺失噪声文件={missing}, "
+        print(f"[collect] {os.path.basename(ori_dir)} tk{tk}: missing noise files={missing}, "
               f"bumped={len(aggregated['bumped'])}, compromised={len(aggregated['compromised'])}, regression={len(aggregated['regression'])}")
     return aggregated
 
@@ -261,7 +261,7 @@ def main():
     print("开始区域分析（white 噪声，tk50/100/150/200，四模型：Small / Medium / Melody / Large）...")
     print(f"输出目录: {OUTPUT_DIR}")
 
-    # 收集所有模型的结果
+    # Collect results for all models
     all_models_results = {}
     for model_key, model_config in MODELS.items():
         print(f"\n处理模型: {model_key}")
@@ -272,17 +272,17 @@ def main():
                 group_config["ori"], group_config["noise_pattern"]
             )
 
-    # 计算全局 y 轴范围
+    # Compute global y-axis range
     all_values = []
     for model_results in all_models_results.values():
         for group_results in model_results.values():
             for region_data in group_results.values():
                 all_values.extend(region_data)
     
-    # 创建 1x4 子图
+    # Create 1x4 subplots
     fig, axes = plt.subplots(1, 4, figsize=(20, 5))
     
-    # 模型顺序调整
+    # Adjust model order
     model_order = ["small", "medium", "mgen-melody", "large"]
     titles = {
         "small": "MusicGen Small",      # 调整顺序
@@ -331,7 +331,7 @@ def main():
     for ax, model_key in zip(axes, model_order):  # 使用新的顺序
         plot_grouped_boxplot_on_axis(ax, all_models_results[model_key], MODELS[model_key],
                                      f"{titles[model_key]} Model")
-        # y轴设置已经在plot_grouped_boxplot_on_axis函数中处理
+        # Y-axis settings are handled inside plot_grouped_boxplot_on_axis
 
     # # 在左下角（第一个子图）添加统计数据说明的图例
     # stats_text = "Statistics saved to:\nregion_statistics.txt"

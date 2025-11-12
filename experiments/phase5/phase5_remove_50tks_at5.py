@@ -19,22 +19,22 @@ def load_model(device):
     model.eval()
     return model, processor
 
-def remove_tokens_at_position(audio_path, output_path, model, processor, device, 
+def remove_tokens_at_position(audio_path, output_path, model, processor, device,
                              remove_start_sec=5.0, remove_length_tokens=50):
     """
-    在指定时间位置删除指定长度的token，并保存删除后的音频
+    Remove a token segment of specified length at a given time and save the result
     
     Args:
-        audio_path: 输入音频路径
-        output_path: 输出音频路径
-        model: MusicGen模型
-        processor: 音频处理器
-        device: 设备
-        remove_start_sec: 开始删除的时间位置（秒）
-        remove_length_tokens: 删除的token数量
+        audio_path: input audio path
+        output_path: output audio path
+        model: MusicGen model
+        processor: audio processor
+        device: device
+        remove_start_sec: start time to remove (seconds)
+        remove_length_tokens: number of tokens to remove
     """
     try:
-        # 加载音频
+        # Load audio
         if device == "cuda":
             audio, sr = audio_read(audio_path)
             audio = audio.mean(dim=0, keepdim=True)
@@ -49,45 +49,45 @@ def remove_tokens_at_position(audio_path, output_path, model, processor, device,
         with torch.no_grad():
             encoded = model.audio_encoder.encode(audio.unsqueeze(0))
             
-            # 检查编码结果
+            # Check encoded result
             if encoded is None:
-                print(f"错误: 音频编码失败 {audio_path}")
+                print(f"Error: audio encoding failed {audio_path}")
                 return None
                 
-            # 根据MusicGen的实际输出格式获取tokens
-            tokens = None  # 初始化tokens变量
+            # Get tokens according to MusicGen actual output format
+            tokens = None  # initialize tokens variable
             if hasattr(encoded, 'audio_codes'):
                 tokens = encoded.audio_codes.long()  # [B, C, K, T]
-                print(f"使用audio_codes属性获取tokens")
+                print(f"Using audio_codes attribute to get tokens")
             elif hasattr(encoded, 'codes'):
                 tokens = encoded.codes.long()  # 可能的替代属性名
-                print(f"使用codes属性获取tokens")
+                print(f"Using codes attribute to get tokens")
             elif isinstance(encoded, torch.Tensor):
                 tokens = encoded.long()  # 直接返回tensor的情况
-                print(f"直接使用tensor作为tokens")
+                print(f"Using tensor as tokens directly")
             else:
-                print(f"错误: 无法从编码结果中提取tokens {audio_path}")
-                print(f"编码结果类型: {type(encoded)}")
+                print(f"Error: cannot extract tokens from encoded result {audio_path}")
+                print(f"Encoded result type: {type(encoded)}")
                 if hasattr(encoded, '__dict__'):
-                    print(f"可用属性: {list(encoded.__dict__.keys())}")
+                    print(f"Available attributes: {list(encoded.__dict__.keys())}")
                 return None
 
-            # 新增：稳健提取 scales（可能是 Tensor/列表/字典/tuple）
+            # Robustly extract scales (could be Tensor/list/dict/tuple)
             scales = None
             if hasattr(encoded, 'audio_scales'):
                 scales = encoded.audio_scales
-                print(f"使用audio_scales属性获取scales，类型: {type(scales)}")
+                print(f"Using audio_scales attribute for scales, type: {type(scales)}")
             elif hasattr(encoded, 'scales'):
                 scales = encoded.scales
-                print(f"使用scales属性获取scales，类型: {type(scales)}")
+                print(f"Using scales attribute for scales, type: {type(scales)}")
             elif isinstance(encoded, (list, tuple)) and len(encoded) >= 2:
                 maybe_scales = encoded[1]
                 scales = maybe_scales
-                print("从返回tuple中获取scales")
+                print("Extracted scales from returned tuple")
             else:
-                print("警告: 未能从编码结果中找到scales，将尝试无scales解码（可能失败）")
+                print("Warning: scales not found in encoded result; will try decoding without scales (may fail)")
 
-            # 统一迁移到同一设备（支持 Tensor/list/tuple/dict）
+            # Move to the same device (supports Tensor/list/tuple/dict)
             def _to_device(obj, device):
                 if torch.is_tensor(obj):
                     return obj.to(device)
@@ -100,42 +100,42 @@ def remove_tokens_at_position(audio_path, output_path, model, processor, device,
             tokens = tokens.to(device)
             scales = _to_device(scales, device)
 
-        # 检查tokens是否成功获取
+        # Check tokens
         if tokens is None:
-            print(f"错误: tokens为None {audio_path}")
+            print(f"Error: tokens is None {audio_path}")
             return None
             
-        print(f"成功获取tokens，形状: {tokens.shape}")
+        print(f"Successfully got tokens, shape: {tokens.shape}")
         B, C, K, T = tokens.shape
         
-        # 计算删除位置（token索引）
-        # MusicGen的压缩比率约为320:1（32000Hz -> 100Hz）
-        tokens_per_sec = 32000 // 320  # 约100 tokens/sec
+        # Compute removal position (token index)
+        # MusicGen compression ratio is ~320:1 (32000Hz -> 100Hz)
+        tokens_per_sec = 32000 // 320  # ~100 tokens/sec
         remove_start_token = int(remove_start_sec * tokens_per_sec)
         remove_end_token = remove_start_token + remove_length_tokens
         
-        print(f"原始音频长度: {T} tokens ({T/tokens_per_sec:.2f}秒)")
-        print(f"删除位置: token {remove_start_token} 到 {remove_end_token} ({remove_start_sec}秒开始，删除{remove_length_tokens}个tokens)")
+        print(f"Original audio length: {T} tokens ({T/tokens_per_sec:.2f}s)")
+        print(f"Removal: token {remove_start_token} to {remove_end_token} (start at {remove_start_sec}s, remove {remove_length_tokens} tokens)")
         
-        # 检查边界
+        # Bounds check
         if remove_end_token > T:
-            print(f"警告: 删除结束位置超出音频长度，调整为音频末尾")
+            print(f"Warning: removal end exceeds audio length; clipping to end")
             remove_end_token = T
             remove_length_tokens = remove_end_token - remove_start_token
         
         if remove_start_token >= T:
-            print(f"错误: 删除开始位置超出音频长度")
+            print(f"Error: removal start exceeds audio length")
             return None
         
-        # 创建删除后的tokens
-        # 前半部分 + 后半部分（跳过中间部分）
+        # Create removed tokens
+        # Before + after (skip middle)
         tokens_before = tokens[:, :, :, :remove_start_token]
         tokens_after = tokens[:, :, :, remove_end_token:]
         
-        # 拼接删除后的tokens
+        # Concatenate removed tokens
         tokens_removed = torch.cat([tokens_before, tokens_after], dim=-1)
 
-        # 新增：对 scales 做同样的裁剪（支持 Tensor/list/tuple/dict）
+        # Also slice scales consistently (supports Tensor/list/tuple/dict)
         def _remove_slice(obj):
             if torch.is_tensor(obj):
                 return torch.cat([obj[..., :remove_start_token], obj[..., remove_end_token:]], dim=-1)
@@ -147,34 +147,34 @@ def remove_tokens_at_position(audio_path, output_path, model, processor, device,
 
         scales_removed = _remove_slice(scales) if scales is not None else None
         if scales is None:
-            print("警告: 缺少scales，尝试不带scales解码（可能失败）")
+            print("Warning: missing scales; trying to decode without scales (may fail)")
         
-        print(f"删除后音频长度: {tokens_removed.shape[-1]} tokens ({tokens_removed.shape[-1]/tokens_per_sec:.2f}秒)")
+        print(f"Audio length after removal: {tokens_removed.shape[-1]} tokens ({tokens_removed.shape[-1]/tokens_per_sec:.2f}s)")
         
         # 解码为音频
         with torch.no_grad():
-            # 优先带 scales 调用；如果接口不兼容则回退
+            # Prefer call with scales; if incompatible, fallback
             try:
                 if scales_removed is not None:
                     decoded_out = model.audio_encoder.decode(tokens_removed, scales_removed)
                 else:
                     decoded_out = model.audio_encoder.decode(tokens_removed)
             except TypeError:
-                print("解码接口需要scales，使用占位scales=1重试")
+                print("Decoder requires scales; retry with placeholder scales=1")
                 dummy_scales = torch.ones(
                     (tokens_removed.shape[0], tokens_removed.shape[1], 1, tokens_removed.shape[-1]),
                     dtype=torch.float32, device=tokens_removed.device
                 )
                 decoded_out = model.audio_encoder.decode(tokens_removed, dummy_scales)
 
-            # 新增：统一从多种返回类型中提取音频 Tensor（特别支持 EncodecDecoderOutput.audio_values）
-            print(f"解码返回类型: {type(decoded_out)}")
+            # Extract audio Tensor from various return types (supports EncodecDecoderOutput.audio_values)
+            print(f"Decode return type: {type(decoded_out)}")
             wave = None
             if isinstance(decoded_out, torch.Tensor):
                 wave = decoded_out
             elif hasattr(decoded_out, 'audio_values'):
                 wave = decoded_out.audio_values
-                print("从 EncodecDecoderOutput.audio_values 提取音频")
+                print("Extracted audio from EncodecDecoderOutput.audio_values")
             elif hasattr(decoded_out, 'audio'):
                 wave = decoded_out.audio
             elif hasattr(decoded_out, 'wav'):
@@ -196,26 +196,26 @@ def remove_tokens_at_position(audio_path, output_path, model, processor, device,
 
             if wave is None or not torch.is_tensor(wave):
                 attrs = dir(decoded_out) if hasattr(decoded_out, '__class__') else 'N/A'
-                print(f"错误: 无法从解码结果中提取音频，返回类型: {type(decoded_out)}，可用属性: {attrs}")
+                print(f"Error: unable to extract audio from decode result, type: {type(decoded_out)}, attrs: {attrs}")
                 return None
 
-            print(f"解码成功，音频tensor形状: {wave.shape}")
+            print(f"Decode success, audio tensor shape: {wave.shape}")
         
-        # 保存音频
+        # Save audio
         decoded_audio = wave.squeeze(0).cpu()
         try:
             decoded_audio = decoded_audio.squeeze(0).cpu()
         except AttributeError as e:
-            print(f"错误: 解码音频处理失败 {audio_path}: {e}")
+            print(f"Error: post-decode audio handling failed {audio_path}: {e}")
             return None
         
-        # 确保输出目录存在
+        # Ensure output directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        # 保存为wav文件
+        # Save as wav
         audio_write(output_path.replace('.wav', ''), decoded_audio, 32000, format='wav')
         
-        print(f"删除后的音频已保存到: {output_path}")
+        print(f"Removed audio saved to: {output_path}")
         
         # 返回删除信息
         return {
@@ -229,15 +229,15 @@ def remove_tokens_at_position(audio_path, output_path, model, processor, device,
         }
         
     except Exception as e:
-        print(f"处理音频时出错 {audio_path}: {str(e)}")
+        print(f"Error processing audio {audio_path}: {str(e)}")
         return None
 
-def process_directory(input_dir, output_dir, model, processor, device, 
+def process_directory(input_dir, output_dir, model, processor, device,
                      remove_start_sec=5.0, remove_length_tokens=50):
     """
-    批量处理目录中的音频文件
+    Batch process audio files in a directory
     """
-    audio_files = []
+    # Find all audio filesaudio_files = []
     for root, dirs, files in os.walk(input_dir):
         for f in files:
             if f.lower().endswith(('.wav', '.mp3')):
@@ -245,17 +245,17 @@ def process_directory(input_dir, output_dir, model, processor, device,
                 audio_files.append(rel_path)
     
     if not audio_files:
-        print(f"在 {input_dir} 中未找到音频文件")
+        print(f"No audio files found in {input_dir}")
         return
     
-    print(f"找到 {len(audio_files)} 个音频文件")
+    print(f"Found {len(audio_files)} audio files")
     
     results = []
     for rel_path in audio_files:
         input_path = os.path.join(input_dir, rel_path)
         output_path = os.path.join(output_dir, rel_path)
         
-        print(f"\n处理: {rel_path}")
+        print(f"\nProcess: {rel_path}")
         result = remove_tokens_at_position(
             input_path, output_path, model, processor, device,
             remove_start_sec, remove_length_tokens
@@ -265,59 +265,59 @@ def process_directory(input_dir, output_dir, model, processor, device,
             result['file_path'] = rel_path
             results.append(result)
     
-    # 保存处理结果
+    # Save results
     results_file = os.path.join(output_dir, 'removal_results.txt')
     with open(results_file, 'w') as f:
-        f.write(f"删除参数: 开始时间={remove_start_sec}秒, 删除长度={remove_length_tokens}tokens\n\n")
+        f.write(f"Removal params: start={remove_start_sec}s, length={remove_length_tokens}tokens\n\n")
         for result in results:
-            f.write(f"文件: {result['file_path']}\n")
-            f.write(f"  原始长度: {result['original_length_tokens']} tokens\n")
-            f.write(f"  删除位置: {result['removed_start_token']}-{result['removed_end_token']} tokens\n")
-            f.write(f"  删除时间: {result['removed_start_sec']:.2f}秒开始, 删除{result['removed_length_sec']:.2f}秒\n")
-            f.write(f"  最终长度: {result['final_length_tokens']} tokens\n\n")
+            f.write(f"File: {result['file_path']}\n")
+            f.write(f"  Original length: {result['original_length_tokens']} tokens\n")
+            f.write(f"  Removal range: {result['removed_start_token']}-{result['removed_end_token']} tokens\n")
+            f.write(f"  Removal time: start {result['removed_start_sec']:.2f}s, length {result['removed_length_sec']:.2f}s\n")
+            f.write(f"  Final length: {result['final_length_tokens']} tokens\n\n")
     
-    print(f"\n处理结果已保存到: {results_file}")
+    print(f"\nResults saved to: {results_file}")
     return results
 
 def main():
-    parser = argparse.ArgumentParser(description="在指定位置删除音频中的token片段")
+    parser = argparse.ArgumentParser(description="Remove a token segment at a specified position")
     parser.add_argument("--input_dir", type=str, default="MusicEval_Small_ori", 
-                       help="输入音频目录")
+                       help="Input audio directory")
     parser.add_argument("--output_dir", type=str, default="MusicEval_Small_removed_50tks", 
-                       help="输出音频目录")
+                       help="Output audio directory")
     parser.add_argument("--remove_start_sec", type=float, default=5.0, 
-                       help="开始删除的时间位置（秒）")
+                       help="Start time to remove (seconds)")
     parser.add_argument("--remove_length_tokens", type=int, default=50, 
-                       help="删除的token数量")
-    parser.add_argument("--force_cpu", action="store_true", help="强制使用CPU")
+                       help="Number of tokens to remove")
+    parser.add_argument("--force_cpu", action="store_true", help="Force CPU")
     
     args = parser.parse_args()
     
-    # 设置设备
+    # Device
     device = setup_device(args.force_cpu)
-    print(f"使用设备: {device}")
+    print(f"Device: {device}")
     
-    # 加载模型
-    print("加载MusicGen模型...")
+    # Load model
+    print("Loading MusicGen model...")
     model, processor = load_model(device)
     
-    # 处理音频
+    # Process
     if os.path.isfile(args.input_dir):
-        # 单个文件
+        # Single file
         output_path = args.output_dir if args.output_dir.endswith('.wav') else args.output_dir + '.wav'
         result = remove_tokens_at_position(
             args.input_dir, output_path, model, processor, device,
             args.remove_start_sec, args.remove_length_tokens
         )
         if result:
-            print(f"\n处理完成: {result}")
+            print(f"\nDone: {result}")
     else:
-        # 目录
+        # Directory
         results = process_directory(
             args.input_dir, args.output_dir, model, processor, device,
             args.remove_start_sec, args.remove_length_tokens
         )
-        print(f"\n批量处理完成，共处理 {len(results)} 个文件")
+        print(f"\nBatch processing complete: processed {len(results)} files")
 
 if __name__ == "__main__":
     main()
