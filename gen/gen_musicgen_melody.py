@@ -8,117 +8,123 @@ from audiocraft.models import MusicGen
 from audiocraft.data.audio import audio_read
 from audiocraft.modules.conditioners import ConditioningAttributes
 
+
 def setup_device(force_cpu=False):
+    """Set up device (CPU or GPU)."""
     if force_cpu:
         return "cpu"
     return "cuda" if torch.cuda.is_available() else "cpu"
 
+
 def load_model(device):
+    """Load the pretrained MusicGen-melody model."""
     model = MusicGen.get_pretrained('facebook/musicgen-melody', device=device)
     model.lm = model.lm.to(dtype=torch.float32)
     model.compression_model = model.compression_model.to(dtype=torch.float32)
 
     compression_ratio = model.compression_model.frame_rate / model.sample_rate
-    print(f"压缩比率: {compression_ratio:.4f} (每音频秒生成{model.compression_model.frame_rate}个tokens)")
+    print(f"Compression ratio: {compression_ratio:.4f} "
+          f"({model.compression_model.frame_rate} tokens generated per second of audio)")
 
     return model
 
+
 def generate_audio(input_path, output_path, model, device):
-    try:
-        # 读取输入音频
-        audio, sr = audio_read(input_path)
+    """Generate an output audio file using MusicGen based on input audio."""
+    # Read input audio
+    audio, sr = audio_read(input_path)
 
-        if audio.dim() > 1 and audio.shape[0] > 1:
-            audio = audio.mean(dim=0, keepdim=True)
+    # Convert to mono if necessary
+    if audio.dim() > 1 and audio.shape[0] > 1:
+        audio = audio.mean(dim=0, keepdim=True)
 
-        audio = audio.to(device)
-        original_length = audio.shape[-1]
+    audio = audio.to(device)
+    original_length = audio.shape[-1]
 
-        # 创建条件属性
-        condition = ConditioningAttributes(
-            text={'description': ""},
-            wav={'self_wav': (audio.unsqueeze(0),
-                 torch.tensor([original_length], device=device),
-                 [sr], [], [])}
+    # Build conditioning attributes
+    condition = ConditioningAttributes(
+        text={'description': ""},
+        wav={'self_wav': (audio.unsqueeze(0),
+                          torch.tensor([original_length], device=device),
+                          [sr], [], [])}
+    )
+
+    # Generate audio
+    with torch.no_grad():
+        generated_audio = model.generate_with_chroma(
+            descriptions=[""],
+            melody_wavs=audio.unsqueeze(0),
+            melody_sample_rate=sr,
+            progress=True
         )
 
-        # 生成音频
-        with torch.no_grad():
-            generated_audio = model.generate_with_chroma(
-                descriptions=[""],
-                melody_wavs=audio.unsqueeze(0),
-                melody_sample_rate=sr,
-                progress=True
-            )
+    # Save generated audio
+    torchaudio.save(
+        output_path,
+        generated_audio.cpu()[0],
+        model.sample_rate
+    )
 
-        # 保存生成的音频
-        torchaudio.save(
-            output_path,
-            generated_audio.cpu()[0],
-            model.sample_rate
-        )
-        
-        print(f"成功生成音频: {output_path}")
-        return True
-
-    except Exception as e:
-        print(f"处理 {os.path.basename(input_path)} 时出错: {str(e)}")
-        return False
+    print(f"Successfully generated: {output_path}")
+    return True
 
 def process_audio_directory(input_dir, output_dir, model, device):
-    # 确保输出目录存在
+    """Process all audio files in a directory using MusicGen."""
+    # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
-    
-    # 获取所有音频文件
+
+    # Get all audio files (WAV/MP3)
     audio_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.wav', '.mp3'))]
     if not audio_files:
-        raise ValueError(f"目录 {input_dir} 中没有WAV/MP3文件")
+        raise ValueError(f"No WAV/MP3 files found in directory {input_dir}")
 
-    print(f"\n开始处理 {len(audio_files)} 个音频文件")
+    print(f"\nStarting to process {len(audio_files)} audio files...")
     success_count = 0
     error_files = []
 
-    for filename in tqdm(audio_files, desc="生成进度"):
+    for filename in tqdm(audio_files, desc="Generation progress"):
         input_path = os.path.join(input_dir, filename)
         output_path = os.path.join(output_dir, filename)
-        
+
         success = generate_audio(input_path, output_path, model, device)
         if success:
             success_count += 1
         else:
             error_files.append(filename)
 
-    print(f"\n成功生成 {success_count} 个音频文件")
+    print(f"\nSuccessfully generated {success_count} audio files.")
     if error_files:
-        print(f"处理失败的 {len(error_files)} 个文件:")
+        print(f"{len(error_files)} files failed to process:")
         for filename in error_files:
             print(f"  - {filename}")
 
+
 def main():
-    parser = argparse.ArgumentParser(description="使用 MusicGen-melody 模型生成音频文件")
+    parser = argparse.ArgumentParser(description="Generate audio files using the MusicGen-melody model.")
     parser.add_argument("--input_dir", type=str, default="data_100",
-                        help="输入音频文件目录")
+                        help="Directory containing input audio files.")
     parser.add_argument("--output_dir", type=str, default="gen_100",
-                        help="输出音频文件目录")
+                        help="Directory to save generated audio files.")
     parser.add_argument("--force_cpu", action="store_true",
-                        help="强制使用CPU，即使GPU可用")
+                        help="Force CPU usage even if GPU is available.")
 
     args = parser.parse_args()
 
-    # 设置设备
+    # Set up device
     device = setup_device(args.force_cpu)
-    print(f"使用设备: {device}")
+    print(f"Using device: {device}")
 
-    # 加载模型
+    # Load model
     model = load_model(device)
 
-    # 处理音频目录
+    # Process directory
     process_audio_directory(args.input_dir, args.output_dir, model, device)
 
-    # 清理GPU内存
+    # Clean GPU memory
     if device == "cuda":
         torch.cuda.empty_cache()
-        print("已清理GPU内存")
+        print("Cleared GPU memory.")
+
 
 if __name__ == "__main__":
     main()
