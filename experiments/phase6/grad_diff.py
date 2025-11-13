@@ -113,10 +113,7 @@ def parse_tk_levels(s: str):
     return levels
 
 def resolve_path(p: str) -> str:
-    """解析为绝对路径：
-    - 若已是绝对路径，直接返回；
-    - 否则以脚本所在目录的两级父目录（项目根 noiseloss）为基准拼接。
-    """
+
     if os.path.isabs(p):
         return p
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -132,12 +129,10 @@ def main():
     parser.add_argument("--basename", default=None, help="Base filename without suffix; inferred from --ori_csv if not provided.")
     args = parser.parse_args()
 
-    # 统一解析为绝对路径
     ori_csv_abs = resolve_path(args.ori_csv)
     perturb_root_abs = resolve_path(args.perturb_root)
     output_root_abs = resolve_path(args.output_root)
 
-    # 基名基于解析后的 ori 路径
     basename = args.basename or infer_basename_from_csv(ori_csv_abs)
     tk_levels = parse_tk_levels(args.tk_levels)
 

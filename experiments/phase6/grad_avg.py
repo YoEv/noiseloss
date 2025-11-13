@@ -185,25 +185,20 @@ class GradientAnalyzer:
         
         print(f"Computing activation gradients via window-mean backward for tokens {idx0}-{idx1}...")
         
-        # 单次反向传播：窗口损失均值
         self.model.zero_grad(set_to_none=True)
         window_loss = loss_per_token[0, idx0:idx1].mean()
         window_loss.backward()
         
-        # 从所有层的激活读取全 token 的梯度范数
         for layer_id in range(1, num_layers + 1):
             if layer_id not in self.activations or not self.activations[layer_id]:
                 continue
             activation = self.activations[layer_id][-1]  # [B, T, H]
             if activation.grad is None:
                 continue
-            # 读取全序列 token 的梯度（包含窗口外受到影响的 token）
             layer_grad = activation.grad[0, :seq_len, :].norm(dim=-1).detach().cpu()  # [T]
             g_h[layer_id - 1, :layer_grad.numel()] = layer_grad
-            # 清理激活 grad，避免累积
             activation.grad = None
         
-        # 最终清理显存
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
@@ -268,7 +263,6 @@ class GradientAnalyzer:
             plt.show()
     
     def visualize_loss_heatmap(self, loss_per_token, save_path=None):
-        """绘制 layer × token 的 loss 热图（按层复制，便于与梯度热图对齐）"""
         loss_1d = loss_per_token.detach().cpu().numpy()[0]  # [T]
         num_layers = 24
         loss_2d = np.tile(loss_1d, (num_layers, 1))  # [layers, T]
@@ -291,7 +285,6 @@ class GradientAnalyzer:
             plt.show()
     
     def save_loss_per_token(self, loss_per_token, output_dir, base_name):
-        """保存每 token 的平均 CE loss（按 codebook 平均）"""
         os.makedirs(output_dir, exist_ok=True)
         loss_csv = os.path.join(output_dir, f"{base_name}_per_token_loss.csv")
         loss_1d = loss_per_token.detach().cpu().numpy()[0]  # [T]
@@ -355,32 +348,25 @@ def process_single_audio(analyzer, audio_path, output_dir, audio_type="unknown")
         per_token_loss = result
         print(f"  Loss shape: {per_token_loss.shape}, Mean: {per_token_loss.mean().item():.4f}")
         
-        # 新增：保存与绘制 loss 热图（layer × token）
         base_name = os.path.splitext(os.path.basename(audio_path))[0]
         analyzer.save_loss_per_token(per_token_loss, output_dir, base_name)
         loss_heatmap_path = os.path.join(output_dir, f"{base_name}_loss_heatmap.png")
         analyzer.visualize_loss_heatmap(per_token_loss, save_path=loss_heatmap_path)
         
-        # 梯度：窗口平均一次 backward，读取全 token 的梯度
         g_h = analyzer.compute_activation_gradients(per_token_loss, audio_duration_sec)
         print(f"  Gradients shape: {g_h.shape}, Max: {g_h.max().item():.6f}")
         
-        # Create output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
         
-        # Save results with specific filename
         base_name = os.path.splitext(os.path.basename(audio_path))[0]
         
-        # Save CSV
         csv_path = os.path.join(output_dir, f"{base_name}_gradient_statistics.csv")
         analyzer.save_results(g_h, output_dir, csv_filename=f"{base_name}_gradient_statistics.csv")
         
-        # Save heatmap
         heatmap_path = os.path.join(output_dir, f"{base_name}_gradient_heatmap.png")
         analyzer.visualize_gradients(g_h, save_path=heatmap_path)
         print(f"  Results saved: {csv_path}, {heatmap_path}, {loss_heatmap_path}")
         
-        # Clear variables and CUDA cache
         del wav, inputs, per_token_loss, g_h
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

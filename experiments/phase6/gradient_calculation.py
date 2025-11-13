@@ -32,7 +32,6 @@ class GradientAnalyzer:
         self.model = self.model.to(self.device)
         self.model.eval()
         
-        # 启用梯度计算但不更新参数
         for p in self.model.parameters():
             p.requires_grad = True
             
@@ -111,13 +110,11 @@ class GradientAnalyzer:
             decoder_inputs = decoder_input_ids[:, :, :, :-1]
             targets = decoder_input_ids[:, :, :, 1:]
         
-        # Forward pass (需要梯度计算)
         outputs = self.model.decoder(
             input_ids=decoder_inputs,
             return_dict=True
         )
         
-        # Calculate cross-entropy loss per codebook
         logits = outputs.logits
         
         B, K, _, T = targets.shape
@@ -131,11 +128,9 @@ class GradientAnalyzer:
             ce_flat = F.cross_entropy(logits_k, targets_k, reduction="none")
             ce_per_token[:, k, :] = ce_flat.view(B, T)
         
-        # Average over codebooks
         avg_loss_per_token = ce_per_token.mean(dim=1)  # [B, T]
         avg_loss_per_token.requires_grad_(True)
         
-        # Clean up intermediate variables
         del audio_codes, decoder_input_ids, decoder_inputs, targets, logits, ce_per_token
         
         return avg_loss_per_token

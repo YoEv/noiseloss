@@ -103,10 +103,7 @@ def compute_diff_and_plot(
     plt.close(fig)
 
 def resolve_path(p: str) -> str:
-    """解析为绝对路径：
-    - 若已是绝对路径，直接返回；
-    - 否则以脚本所在目录的两级父目录（项目根 noiseloss）为基准拼接。
-    """
+
     if os.path.isabs(p):
         return p
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -114,15 +111,12 @@ def resolve_path(p: str) -> str:
     return os.path.abspath(os.path.join(project_root, p))
 
 def extract_perturbation_info(filename: str):
-    """从文件名中提取扰动信息"""
     if "rhythm" in filename:
-        # 提取 rhythm 参数，如 rhythm1_4_step1_r10 -> r10
         parts = filename.split("_")
         for part in parts:
             if part.startswith("r") and part[1:].isdigit():
                 return "rhythm", part
     elif "velocity" in filename:
-        # 提取 velocity 参数，如 velocity1_1_step1_nt10 -> nt10
         parts = filename.split("_")
         for part in parts:
             if part.startswith("nt") and part[2:].isdigit():
@@ -136,7 +130,6 @@ def main():
     parser.add_argument("--output_root", default="experiments/phase6/results/diff_musical", help="Root dir to write diff results.")
     args = parser.parse_args()
 
-    # 统一解析为绝对路径
     ori_csv_abs = resolve_path(args.ori_csv)
     perturb_root_abs = resolve_path(args.perturb_root)
     output_root_abs = resolve_path(args.output_root)
@@ -151,7 +144,6 @@ def main():
 
     os.makedirs(output_root_abs, exist_ok=True)
 
-    # 获取所有扰动文件
     perturb_files = []
     for filename in os.listdir(perturb_root_abs):
         if filename.endswith("_activation_gradients.csv"):
@@ -159,7 +151,6 @@ def main():
 
     print(f"Found {len(perturb_files)} perturbation files")
 
-    # 按扰动类型分组
     rhythm_files = []
     velocity_files = []
     
@@ -170,7 +161,6 @@ def main():
         elif pert_type == "velocity":
             velocity_files.append((filename, pert_param))
 
-    # 处理 rhythm 扰动
     if rhythm_files:
         rhythm_dir = os.path.join(output_root_abs, "rhythm")
         os.makedirs(rhythm_dir, exist_ok=True)
@@ -199,7 +189,6 @@ def main():
             except Exception as e:
                 print(f"[error] rhythm {param}: {e}")
 
-    # 处理 velocity 扰动
     if velocity_files:
         velocity_dir = os.path.join(output_root_abs, "velocity")
         os.makedirs(velocity_dir, exist_ok=True)

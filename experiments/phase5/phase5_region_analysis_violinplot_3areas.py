@@ -7,42 +7,38 @@ from pathlib import Path
 import glob
 import re
 
-# 配置参数
 STABLE_LEN = 5
 BUMPED_START_FIXED = 245
 
-# 数据路径
 # ORIGINAL_PATH = "+Loss/Phase5_1/asap_ori_small/per_token"
 # NOISE_PATH = "+Loss/Phase5_1/asap_replace_noise_white_at5_tk5_token_loss_small/per_token"
 OUTPUT_DIR = "+Loss_Plot/Phase5_1/3regions_violinplot"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 统一分组定义：顺序与配色
 GROUP_ORDER = ["asap", "shutter", "unconditional"]
 GROUP_META = {
-    "asap": {"color": "#FFFACD", "label": "asap"},            # 浅黄
-    "shutter": {"color": "#F8BBD9", "label": "shutter"},       # 浅粉
-    "unconditional": {"color": "#B3D9FF", "label": "unconditional"},  # 浅蓝
+    "asap": {"color": "#FFFACD", "label": "asap"},
+    "shutter": {"color": "#F8BBD9", "label": "shutter"},
+    "unconditional": {"color": "#B3D9FF", "label": "unconditional"},
 }
-# 三种模型（small / mgen-melody / medium / large）下的三组数据（asap/shutter/unconditional）
 MODELS = {
     "small": {
         "asap": {
             "ori": "+Loss/Phase5_1/asap_ori_small/per_token",
             "noise_pattern": "+Loss/Phase5_1/asap_replace_noise_white_at5_tk{tk}_token_loss_small/per_token",
-            "color": "#FFFACD",  # 浅黄
+            "color": "#FFFACD",
             "label": "asap",
         },
         "shutter": {
             "ori": "+Loss/Phase5_1/ShutterStock_32k_ori_small/per_token",
             "noise_pattern": "+Loss/Phase5_1/shutter_replace_noise_white_at5_tk{tk}_token_loss_small/per_token",
-            "color": "#FFB6C1",  # 浅粉
+            "color": "#FFB6C1",
             "label": "shutter",
         },
         "unconditional": {
             "ori": "+Loss/Phase5_1/Unconditional_ori_small/per_token",
             "noise_pattern": "+Loss/Phase5_1/unconditional_replace_noise_white_at5_tk{tk}_token_loss_small/per_token",
-            "color": "#ADD8E6",  # 浅蓝
+            "color": "#ADD8E6",
             "label": "unconditional",
         },
     },
@@ -187,14 +183,10 @@ def analyze_single_file(ori_file, noise_file, noise_length):
     return result
 
 def collect_group_results(ori_dir, noise_pattern):
-    """
-    聚合某一组（asap/shutter/unconditional）在 tk50/100/150/200 上，
-    统计三个区域的平均损失差值，返回 {'bumped': [...], 'compromised': [...], 'regression': [...]}。
-    """
     aggregated = {"bumped": [], "compromised": [], "regression": []}
     ori_files = glob.glob(os.path.join(ori_dir, "*.csv"))
     if not ori_files:
-        print(f"[collect] 警告: 找不到 ori 文件于 {ori_dir}")
+        print(f"[collect] Warning: Cannot find ori files in {ori_dir}")
         return aggregated
 
     for tk in NOISE_TOKENS:
@@ -218,10 +210,6 @@ def collect_group_results(ori_dir, noise_pattern):
     return aggregated
 
 def plot_grouped_violinplot_on_axis(ax, all_group_results, group_meta, title):
-    """
-    在给定的 ax 上绘制分组小提琴图：
-    横轴三个区域（bumped/compromised/regression），每个区域内紧凑排列三组（asap/shutter/unconditional）。
-    """
     region_order = ["bumped", "compromised", "regression"]
     region_labels = ["Peak", "Assimilation", "Recovery"]
     groups_in_order = ["asap", "shutter", "unconditional"]
@@ -234,71 +222,57 @@ def plot_grouped_violinplot_on_axis(ax, all_group_results, group_meta, title):
         data = [all_group_results[g][r] for r in region_order]
         positions = [centers[i] + offsets[g] for i in range(3)]
         
-        # 使用violinplot替代boxplot
         parts = ax.violinplot(data, positions=positions, widths=widths, showmeans=False, showmedians=True, showextrema=True)
         
-        # 设置小提琴图的颜色
         for pc in parts['bodies']:
             pc.set_facecolor(group_meta[g]["color"])
-            pc.set_alpha(0.7)  # 设置透明度
+            pc.set_alpha(0.7)
         
-        # 设置中位数线的样式
         if 'cmedians' in parts:
             parts['cmedians'].set_color('#333333')
             parts['cmedians'].set_linewidth(2)
 
     ax.set_xticks(centers)
-    ax.set_xticklabels(region_labels, fontsize=17)  # 增大x轴标签字体
-    # ax.set_ylabel("Loss Difference", fontsize=24)   # 增大y轴标签字体
-    # ax.set_title(title, fontsize=22)                # 增大标题字体
-    ax.grid(False)  # 完全关闭网格线
+    ax.set_xticklabels(region_labels, fontsize=17)
+    # ax.set_ylabel("Loss Difference", fontsize=24)
+    # ax.set_title(title, fontsize=22)
+    ax.grid(False)
     
-    # 每个子图都设置y轴刻度为指定值
     ax.set_yticks([-8, -4, 0, 4])
-    ax.set_yticklabels([-8, -4, 0, 4], fontsize=28)  # 增大y轴刻度字体
-    ax.set_ylim(-10, 6)  # 确保刻度值都在可见范围内
+    ax.set_yticklabels([-8, -4, 0, 4], fontsize=28)
+    ax.set_ylim(-10, 6)
 
-    # 在右上角添加带颜色的数据库图例
     # legend_handles = [Patch(facecolor=group_meta[g]["color"], label=group_meta[g]["label"]) for g in groups_in_order]
-    # ax.legend(handles=legend_handles, title="Dataset", fontsize=12, title_fontsize=12, loc="upper right")  # 右上角
+    # ax.legend(handles=legend_handles, title="Dataset", fontsize=12, title_fontsize=12, loc="upper right")
 
-    return all_group_results  # 返回数据用于统计
-
+    return all_group_results
 def main():
-    print("开始区域分析（white 噪声，tk50/100/150/200，四模型：Small / Medium / Melody / Large）...")
-    print(f"输出目录: {OUTPUT_DIR}")
-
-    # 收集所有模型的结果
     all_models_results = {}
     for model_key, model_config in MODELS.items():
-        print(f"\n处理模型: {model_key}")
+        print(f"\nProcessing model: {model_key}")
         all_models_results[model_key] = {}
         for group_key, group_config in model_config.items():
-            print(f"  处理组: {group_key}")
+            print(f"  Processing group: {group_key}")
             all_models_results[model_key][group_key] = collect_group_results(
                 group_config["ori"], group_config["noise_pattern"]
             )
 
-    # 计算全局 y 轴范围
     all_values = []
     for model_results in all_models_results.values():
         for group_results in model_results.values():
             for region_data in group_results.values():
                 all_values.extend(region_data)
     
-    # 创建 1x4 子图
     fig, axes = plt.subplots(1, 4, figsize=(20, 5))
     
-    # 模型顺序调整
     model_order = ["small", "medium", "mgen-melody", "large"]
     titles = {
-        "small": "MusicGen Small",      # 调整顺序
-        "medium": "MusicGen Medium",     # 调整顺序
-        "mgen-melody": "MusicGen Melody", # 调整顺序
+        "small": "MusicGen Small",
+        "medium": "MusicGen Medium",
+        "mgen-melody": "MusicGen Melody",
         "large": "MusicGen Large",
     }
 
-    # 保存统计数据到文件
     stats_path = os.path.join(OUTPUT_DIR, "region_statistics.txt")
     with open(stats_path, 'w', encoding='utf-8') as stats_file:
         stats_file.write("Average Loss Difference Statistics\n")
@@ -314,7 +288,6 @@ def main():
             for i, region in enumerate(region_order):
                 stats_file.write(f"\n{region_labels[i]} Region:\n")
                 
-                # 存储当前区域的均值和标准差
                 region_means = []
                 region_stds = []
                 
@@ -322,25 +295,22 @@ def main():
                     data = all_models_results[model_key][g][region]
                     if len(data) > 0:
                         mean_val = np.mean(data)
-                        std_val = np.std(data, ddof=1)  # 样本标准差
+                        std_val = np.std(data, ddof=1)
                         stats_file.write(f"  {g}: {mean_val:.2f} ± {std_val:.2f}\n")
                         region_means.append(mean_val)
                         region_stds.append(std_val)
                     else:
                         stats_file.write(f"  {g}: No data\n")
                 
-                # 计算三个数据库的平均均值和平均标准差
                 if len(region_means) > 0:
                     avg_mean = np.mean(region_means)
                     avg_std = np.mean(region_stds)
                     stats_file.write(f"  Average across databases: {avg_mean:.2f} ± {avg_std:.2f}\n")
 
-    for ax, model_key in zip(axes, model_order):  # 使用新的顺序
+    for ax, model_key in zip(axes, model_order):
         plot_grouped_violinplot_on_axis(ax, all_models_results[model_key], MODELS[model_key],
                                      f"{titles[model_key]} Model")
-        # y轴设置已经在plot_grouped_violinplot_on_axis函数中处理
 
-    # # 在左下角（第一个子图）添加统计数据说明的图例
     # stats_text = "Statistics saved to:\nregion_statistics.txt"
     # axes[0].text(0.02, 0.02, stats_text, transform=axes[0].transAxes, 
     #             fontsize=10, verticalalignment='bottom', horizontalalignment='left',
@@ -350,8 +320,8 @@ def main():
     out_path = os.path.join(OUTPUT_DIR, "no_legend_avg_loss_diff_grouped_violinplot_white_4models_1x4.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight", transparent=True, facecolor='none')
     plt.close()
-    print(f"总图已保存: {out_path}")
-    print(f"统计数据已保存: {stats_path}")
+    print(f"Main plot saved: {out_path}")
+    print(f"Statistics data saved: {stats_path}")
 
 if __name__ == "__main__":
     main()

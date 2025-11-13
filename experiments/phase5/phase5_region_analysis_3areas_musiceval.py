@@ -7,34 +7,30 @@ from pathlib import Path
 import glob
 import re
 
-# 配置参数
 STABLE_LEN = 5
-BUMPED_START_FIXED_5S = 245  # 噪声在第5秒时的bumped_start
-BUMPED_START_FIXED_20S = 999  # 噪声在第20秒时的bumped_start
-NOISE_LENGTH = 20  # 噪声长度为20token
+BUMPED_START_FIXED_5S = 245
+BUMPED_START_FIXED_20S = 999
+NOISE_LENGTH = 20
 
-# 数据路径 - 修改为MusicEval数据集
 OUTPUT_DIR = "test_out/musiceval_analysis"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# MusicEval数据集配置
-# MusicEval数据集配置
 MUSICEVAL_GROUPS = {
     "original": {
         "path": "+Loss/Phase5_1_MusicEval_small/musiceval_ori_small/per_token",
-        "color": "#90EE90",  # 浅绿
+        "color": "#90EE90",
         "label": "Original",
-        "noise_position": None,  # 原始文件没有噪声
+        "noise_position": None,
     },
     "noise_at5s": {
         "path": "+Loss/Phase5_1_MusicEval_small/musiceval_at5_small/per_token",
-        "color": "#FFB6C1",  # 浅粉
+        "color": "#FFB6C1",
         "label": "Noise at 5s",
         "noise_position": "5s",
     },
     "noise_at20s": {
         "path": "+Loss/Phase5_1_MusicEval_small/musiceval_at20_small/per_token",
-        "color": "#ADD8E6",  # 浅蓝
+        "color": "#ADD8E6",
         "label": "Noise at 20s",
         "noise_position": "20s",
     },
@@ -52,15 +48,11 @@ def detect_regions_ma(ori_loss, mix_loss, noise_position="5s"):
     diff = mix_loss - ori_loss
     baseline = np.mean(diff[:200])
     
-    # 根据噪声位置设置不同的bumped_start
     if noise_position == "20s":
         bumped_start = BUMPED_START_FIXED_20S
-        # 对于20秒位置的噪声，compromised_end计算需要调整
-        # 20秒 ≈ 999 token位置，加上20token噪声长度
         compromised_end = bumped_start + NOISE_LENGTH + 4
-    else:  # 默认5秒位置
+    else:
         bumped_start = BUMPED_START_FIXED_5S
-        # 5秒位置的compromised_end计算
         compromised_end = 249 + NOISE_LENGTH + 4
     
     bumped_end = None
@@ -96,7 +88,6 @@ def analyze_single_file_pair(ori_file, noise_file, noise_type):
     ori_loss = ori_loss[:min_len]
     mix_loss = mix_loss[:min_len]
     
-    # 获取噪声位置信息
     noise_position = MUSICEVAL_GROUPS[noise_type]["noise_position"]
     regions = detect_regions_ma(ori_loss, mix_loss, noise_position)
     filename = os.path.basename(ori_file).replace('_tokens_avg.csv', '')
@@ -106,7 +97,6 @@ def analyze_single_file_pair(ori_file, noise_file, noise_type):
     compromised_start, compromised_end = regions['compromised']
     regression_start, regression_end = regions['regression']
     
-    # 计算bumped area的最高值和平均值
     bumped_diff = diff[bumped_start:bumped_end] if bumped_end > bumped_start else []
     bumped_max = np.max(bumped_diff) if len(bumped_diff) > 0 else 0
     bumped_avg = np.mean(bumped_diff) if len(bumped_diff) > 0 else 0
@@ -130,35 +120,29 @@ def analyze_single_file_pair(ori_file, noise_file, noise_type):
     return result
 
 def analyze_musiceval_dataset():
-    """
-    分析MusicEval数据集，比较original与两种noise干扰的音频
-    """
-    print("开始MusicEval数据集区域分析...")
-    print(f"输出目录: {OUTPUT_DIR}")
-    print(f"噪声长度: {NOISE_LENGTH} tokens")
-    print(f"5秒位置bumped_start: {BUMPED_START_FIXED_5S}")
-    print(f"20秒位置bumped_start: {BUMPED_START_FIXED_20S}")
+    print("Starting MusicEval dataset region analysis...")
+    print(f"Output directory: {OUTPUT_DIR}")
+    print(f"Noise length: {NOISE_LENGTH} tokens")
+    print(f"5-second position bumped_start: {BUMPED_START_FIXED_5S}")
+    print(f"20-second position bumped_start: {BUMPED_START_FIXED_20S}")
     print("-" * 50)
     
-    # 获取original文件列表
     ori_dir = MUSICEVAL_GROUPS["original"]["path"]
     ori_files = glob.glob(os.path.join(ori_dir, "*.csv"))
     
     if not ori_files:
-        print(f"警告: 找不到original文件于 {ori_dir}")
+        print(f"Warning: Cannot find original files in {ori_dir}")
         return
     
-    print(f"找到 {len(ori_files)} 个original文件")
+    print(f"Found {len(ori_files)} original files")
     
-    # 存储所有分析结果
     all_results = []
-    bumped_stats = []  # 用于记录每首曲子的bumped area统计
+    bumped_stats = []
     
-    # 分析每种noise类型
     for noise_type in ["noise_at5s", "noise_at20s"]:
         noise_dir = MUSICEVAL_GROUPS[noise_type]["path"]
         noise_position = MUSICEVAL_GROUPS[noise_type]["noise_position"]
-        print(f"\n分析 {noise_type} (位置: {noise_position}, 路径: {noise_dir})")
+        print(f"\nAnalyzing {noise_type} (position: {noise_position}, path: {noise_dir})")
         
         missing_count = 0
         processed_count = 0
@@ -177,7 +161,6 @@ def analyze_musiceval_dataset():
             
             all_results.append(result)
             
-            # 记录bumped area统计
             bumped_stats.append({
                 'filename': result['filename'],
                 'noise_type': noise_type,
@@ -189,59 +172,50 @@ def analyze_musiceval_dataset():
             
             processed_count += 1
         
-        print(f"{noise_type}: 处理={processed_count}, 缺失={missing_count}")
+        print(f"{noise_type}: processed={processed_count}, missing={missing_count}")
     
-    # 保存详细分析结果
     if all_results:
         results_df = pd.DataFrame(all_results)
         results_path = os.path.join(OUTPUT_DIR, "musiceval_region_analysis_results.csv")
         results_df.to_csv(results_path, index=False)
-        print(f"\n详细分析结果已保存: {results_path}")
+        print(f"\nDetailed analysis results saved: {results_path}")
     
-    # 保存bumped area统计
     if bumped_stats:
         bumped_df = pd.DataFrame(bumped_stats)
         bumped_path = os.path.join(OUTPUT_DIR, "bumped_area_statistics.csv")
         bumped_df.to_csv(bumped_path, index=False)
-        print(f"Bumped area统计已保存: {bumped_path}")
+        print(f"Bumped area statistics saved: {bumped_path}")
         
-        # 同时保存为txt文件
         bumped_txt_path = os.path.join(OUTPUT_DIR, "bumped_area_statistics.txt")
         with open(bumped_txt_path, 'w', encoding='utf-8') as f:
-            f.write("MusicEval数据集 Bumped Area 统计\n")
+            f.write("MusicEval Dataset Bumped Area Statistics\n")
             f.write("=" * 50 + "\n\n")
-            f.write(f"噪声长度: {NOISE_LENGTH} tokens\n")
-            f.write(f"5秒位置bumped_start: {BUMPED_START_FIXED_5S}\n")
-            f.write(f"20秒位置bumped_start: {BUMPED_START_FIXED_20S}\n\n")
+            f.write(f"Noise length: {NOISE_LENGTH} tokens\n")
+            f.write(f"5-second position bumped_start: {BUMPED_START_FIXED_5S}\n")
+            f.write(f"20-second position bumped_start: {BUMPED_START_FIXED_20S}\n\n")
             
             for _, row in bumped_df.iterrows():
-                f.write(f"文件: {row['filename']}\n")
-                f.write(f"噪声类型: {row['noise_type']}\n")
-                f.write(f"噪声位置: {row['noise_position']}\n")
+                f.write(f"File: {row['filename']}\n")
+                f.write(f"Noise type: {row['noise_type']}\n")
+                f.write(f"Noise position: {row['noise_position']}\n")
                 f.write(f"Bumped Start: {row['bumped_start']}\n")
-                f.write(f"Bumped Area 最高值: {row['bumped_max']:.6f}\n")
-                f.write(f"Bumped Area 平均值: {row['bumped_avg']:.6f}\n")
+                f.write(f"Bumped Area maximum: {row['bumped_max']:.6f}\n")
+                f.write(f"Bumped Area average: {row['bumped_avg']:.6f}\n")
                 f.write("-" * 30 + "\n")
         
-        print(f"Bumped area统计文本文件已保存: {bumped_txt_path}")
+        print(f"Bumped area statistics text file saved: {bumped_txt_path}")
     
-    # 生成区域分析图表（不包含boxplot）
     plot_region_analysis(all_results)
     
-    print("\nMusicEval数据集分析完成！")
+    print("\nMusicEval dataset analysis completed!")
 
 def plot_region_analysis(all_results):
-    """
-    绘制区域分析图表（删除boxplot，只保留必要的可视化）
-    """
     if not all_results:
         return
     
-    # 按noise类型分组统计
     noise_types = ["noise_at5s", "noise_at20s"]
     regions = ["bumped", "compromised", "regression"]
     
-    # 统计各区域的平均损失差值
     stats_data = {}
     for noise_type in noise_types:
         type_results = [r for r in all_results if r['noise_type'] == noise_type]
@@ -251,10 +225,8 @@ def plot_region_analysis(all_results):
             'regression': [r['regression_avg_diff'] for r in type_results]
         }
     
-    # 绘制条形图比较
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
-    # 平均值比较
     region_labels = ['Bumped', 'Compromised', 'Regression']
     x_pos = np.arange(len(region_labels))
     width = 0.35
@@ -275,7 +247,6 @@ def plot_region_analysis(all_results):
     ax1.legend()
     ax1.grid(True, alpha=0.3)
     
-    # 标准差比较
     noise_at5s_stds = [np.std(stats_data['noise_at5s'][r]) for r in regions]
     noise_at20s_stds = [np.std(stats_data['noise_at20s'][r]) for r in regions]
     
@@ -296,9 +267,8 @@ def plot_region_analysis(all_results):
     plot_path = os.path.join(OUTPUT_DIR, "musiceval_region_analysis.png")
     plt.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close()
-    print(f"区域分析图表已保存: {plot_path}")
+    print(f"Regional analysis chart saved: {plot_path}")
     
-    # 生成汇总统计表
     summary_stats = []
     for noise_type in noise_types:
         for region in regions:
@@ -317,7 +287,7 @@ def plot_region_analysis(all_results):
     summary_df = pd.DataFrame(summary_stats)
     summary_path = os.path.join(OUTPUT_DIR, "musiceval_summary_statistics.csv")
     summary_df.to_csv(summary_path, index=False)
-    print(f"汇总统计已保存: {summary_path}")
+    print(f"Summary: {summary_path}")
 
 def main():
     analyze_musiceval_dataset()

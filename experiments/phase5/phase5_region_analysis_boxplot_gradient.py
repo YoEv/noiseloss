@@ -7,34 +7,30 @@ from pathlib import Path
 import glob
 import re
 
-# 配置参数
 STABLE_LEN = 5
 BUMPED_START_FIXED = 245
 
-# 数据路径
 OUTPUT_DIR = "+Loss_Plot/Phase5_1/3regions_boxplot_gradient"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 渐变色配置：每个区域使用不同颜色系，每个数据库使用不同深度
 GRADIENT_COLORS = {
-    "bumped": {  # Peak区域 - 黄色系
-        "asap": "#FFFACD",        # 浅黄
-        "shutter": "#FFD700",     # 中黄
-        "unconditional": "#DAA520"  # 深黄
+    "bumped": {
+        "asap": "#FFFACD",
+        "shutter": "#FFD700",
+        "unconditional": "#DAA520"
     },
-    "compromised": {  # Assimilation区域 - 粉色系
-        "asap": "#FFE4E1",        # 浅粉
-        "shutter": "#FFB6C1",     # 中粉
-        "unconditional": "#FF69B4"  # 深粉
+    "compromised": {
+        "asap": "#FFE4E1",
+        "shutter": "#FFB6C1",
+        "unconditional": "#FF69B4"
     },
-    "regression": {  # Recovery区域 - 蓝色系
-        "asap": "#E6F3FF",        # 浅蓝
-        "shutter": "#87CEEB",     # 中蓝
-        "unconditional": "#4169E1"  # 深蓝
+    "regression": {
+        "asap": "#E6F3FF",
+        "shutter": "#87CEEB",
+        "unconditional": "#4169E1"
     }
 }
 
-# 统一分组定义：顺序与配色
 GROUP_ORDER = ["asap", "shutter", "unconditional"]
 GROUP_META = {
     "asap": {"color": "#FFFACD", "label": "asap"},
@@ -42,7 +38,6 @@ GROUP_META = {
     "unconditional": {"color": "#B3D9FF", "label": "unconditional"},
 }
 
-# 三种模型（small / mgen-melody / medium / large）下的三组数据（asap/shutter/unconditional）
 MODELS = {
     "small": {
         "asap": {
@@ -205,14 +200,10 @@ def analyze_single_file(ori_file, noise_file, noise_length):
     return result
 
 def collect_group_results(ori_dir, noise_pattern):
-    """
-    聚合某一组（asap/shutter/unconditional）在 tk50/100/150/200 上，
-    统计三个区域的平均损失差值，返回 {'bumped': [...], 'compromised': [...], 'regression': [...]}。
-    """
     aggregated = {"bumped": [], "compromised": [], "regression": []}
     ori_files = glob.glob(os.path.join(ori_dir, "*.csv"))
     if not ori_files:
-        print(f"[collect] 警告: 找不到 ori 文件于 {ori_dir}")
+        print(f"[collect] Warning: Cannot find ori files in {ori_dir}")
         return aggregated
 
     for tk in NOISE_TOKENS:
@@ -236,11 +227,6 @@ def collect_group_results(ori_dir, noise_pattern):
     return aggregated
 
 def plot_grouped_boxplot_on_axis(ax, all_group_results, group_meta, title):
-    """
-    在给定的 ax 上绘制分组箱线图（渐变色版本）：
-    横轴三个区域（bumped/compromised/regression），每个区域内紧凑排列三组（asap/shutter/unconditional）。
-    每个区域使用不同的颜色系，每个数据库使用不同深度的颜色。
-    """
     region_order = ["bumped", "compromised", "regression"]
     region_labels = ["Peak", "Assimilation", "Recovery"]
     groups_in_order = ["asap", "shutter", "unconditional"]
@@ -254,7 +240,6 @@ def plot_grouped_boxplot_on_axis(ax, all_group_results, group_meta, title):
             data = [all_group_results[g][region]]
             position = [centers[i] + offsets[g]]
             
-            # 使用渐变色配置
             color = GRADIENT_COLORS[region][g]
             
             bp = ax.boxplot(data, positions=position, widths=widths, patch_artist=True)
@@ -268,7 +253,6 @@ def plot_grouped_boxplot_on_axis(ax, all_group_results, group_meta, title):
     ax.set_xticklabels(region_labels, fontsize=17)
     ax.grid(False)
     
-    # 每个子图都设置y轴刻度为指定值
     ax.set_yticks([-8, -4, 0, 4])
     ax.set_yticklabels([-8, -4, 0, 4], fontsize=28)
     ax.set_ylim(-10, 6)
@@ -276,31 +260,24 @@ def plot_grouped_boxplot_on_axis(ax, all_group_results, group_meta, title):
     return all_group_results
 
 def main():
-    print("开始区域分析（white 噪声，tk50/100/150/200，四模型：Small / Medium / Melody / Large，渐变色版本）...")
-    print(f"输出目录: {OUTPUT_DIR}")
-
-    # 收集所有模型的结果
     all_models_results = {}
     for model_key, model_config in MODELS.items():
-        print(f"\n处理模型: {model_key}")
+        print(f"\nProcessing model: {model_key}")
         all_models_results[model_key] = {}
         for group_key, group_config in model_config.items():
-            print(f"  处理组: {group_key}")
+            print(f"  Processing group: {group_key}")
             all_models_results[model_key][group_key] = collect_group_results(
                 group_config["ori"], group_config["noise_pattern"]
             )
 
-    # 计算全局 y 轴范围
     all_values = []
     for model_results in all_models_results.values():
         for group_results in model_results.values():
             for region_data in group_results.values():
                 all_values.extend(region_data)
     
-    # 创建 1x4 子图
     fig, axes = plt.subplots(1, 4, figsize=(20, 5))
     
-    # 模型顺序调整
     model_order = ["small", "medium", "mgen-melody", "large"]
     titles = {
         "small": "MusicGen Small",
@@ -309,7 +286,6 @@ def main():
         "large": "MusicGen Large",
     }
 
-    # 保存统计数据到文件
     stats_path = os.path.join(OUTPUT_DIR, "region_statistics.txt")
     with open(stats_path, 'w', encoding='utf-8') as stats_file:
         stats_file.write("Average Loss Difference Statistics (Gradient Color Version)\n")
@@ -352,8 +328,8 @@ def main():
     out_path = os.path.join(OUTPUT_DIR, "no_legend_avg_loss_diff_grouped_boxplot_gradient_4models_1x4.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight", transparent=True, facecolor='none')
     plt.close()
-    print(f"总图已保存: {out_path}")
-    print(f"统计数据已保存: {stats_path}")
+    print(f"Main plot saved: {out_path}")
+    print(f"Statistics data saved: {stats_path}")
 
 if __name__ == "__main__":
     main()
