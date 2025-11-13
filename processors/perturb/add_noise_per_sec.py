@@ -11,7 +11,6 @@ def generate_white_noise(length, db_level=-20):
 
 def add_noise_at_time(audio_data, sample_rate, start_time_sec, token_length=5, db_level=-20, frame_rate=50):
     start_sample = int(start_time_sec * sample_rate)
-    # 正确的token时长计算：每个token = 1/frame_rate 秒
     single_token_duration = 1.0 / frame_rate
     duration_samples = int(token_length * single_token_duration * sample_rate)
     

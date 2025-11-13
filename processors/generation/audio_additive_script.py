@@ -23,24 +23,14 @@ def normalize_channels(audio1, audio2):
     return audio1, audio2
 
 def additive_synthesis(base_audio, add_audio, percentage, sr=32000, segment_min=0.01, segment_max=0.05):
-    """使用加法合成，随机选择短片段进行叠加
-    
-    Args:
-        base_audio: 基础音频 (Beethoven)
-        add_audio: 要添加的音频 (ShutterStock)
-        percentage: 添加的总时长百分比 (5-80)
-        sr: 采样率
-        segment_min: 最小片段长度 (秒)
-        segment_max: 最大片段长度 (秒)
-    """
     base_audio, add_audio = normalize_channels(base_audio, add_audio)
     
     min_length = min(base_audio.shape[-1], add_audio.shape[-1])
     base_trimmed = base_audio[..., :min_length].clone()
     add_trimmed = add_audio[..., :min_length]
     
-    total_duration = min_length / sr  # 总时长（秒）
-    add_duration = total_duration * (percentage / 100.0)  # 要添加的时长（秒）
+    total_duration = min_length / sr
+    add_duration = total_duration * (percentage / 100.0)
     
     segment_min_samples = int(segment_min * sr)
     segment_max_samples = int(segment_max * sr)

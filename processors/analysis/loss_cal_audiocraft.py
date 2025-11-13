@@ -42,7 +42,6 @@ def _compute_cross_entropy(
         q_ce = F.cross_entropy(ce_logits, ce_targets)
         ce += q_ce
         ce_per_codebook.append(q_ce.detach())
-    # 计算各码本平均交叉熵
     ce = ce / K
     return ce, ce_per_codebook
 
@@ -59,17 +58,15 @@ def process_single_audio(audio_path, model, device, loss_type="cross_entropy"):
         valid_token_length = int((original_length / sr) * model.compression_model.frame_rate) - 1
 
         with torch.no_grad():
-            encoded = model.compression_model.encode(audio.unsqueeze(0))  # 添加batch维度
+            encoded = model.compression_model.encode(audio.unsqueeze(0))
             tokens = encoded[0].long()
 
         input_tokens = tokens[:, :, :-1].contiguous()
         target_tokens = tokens[:, :, 1:].contiguous()
 
-        # 创建掩码 - 标记有效的时间步
         B, K, T = target_tokens.shape
         mask = torch.zeros_like(target_tokens, dtype=torch.bool)
 
-        # 对每个批次样本设置有效区域的掩码
         for b in range(B):
             mask[b, :, :valid_token_length] = True
 
@@ -80,34 +77,25 @@ def process_single_audio(audio_path, model, device, loss_type="cross_entropy"):
                  [sr], [], [])}
         )
 
-        # 计算loss
         with torch.no_grad():
             with torch.autocast(device_type='cuda', enabled=False):
                 outputs = model.lm(input_tokens, [condition])
 
             if loss_type == "cross_entropy":
-                # 确保输出形状正确 [B, K, T, card]
                 logits = outputs.view(B, K, T, -1)
-                # 计算交叉熵损失
                 ce, ce_per_codebook = _compute_cross_entropy(
                     logits, target_tokens, mask)
                 return ce.item()
-                # return ce_per_codebook[0]()
-            else:  # MSE loss
-                # 确保输出形状正确 [B, K, T, card]
+            else:
                 logits = outputs.view(B, K, T, -1)
-                # 计算MSE损失
                 total_mse = 0
                 for k in range(K):
-                    # 获取当前codebook的logits和目标
                     logits_k = logits[:, k, :valid_token_length, :].reshape(-1, logits.size(-1))
                     targets_k = target_tokens[:, k, :valid_token_length].reshape(-1)
 
-                    # 创建one-hot编码的目标
                     target_one_hot = torch.zeros_like(logits_k)
                     target_one_hot.scatter_(1, targets_k.unsqueeze(1), 1.0)
 
-                    # 计算MSE损失
                     mse = torch.nn.functional.mse_loss(
                         torch.softmax(logits_k, dim=1),
                         target_one_hot,
@@ -115,7 +103,6 @@ def process_single_audio(audio_path, model, device, loss_type="cross_entropy"):
                     )
                     total_mse += mse
 
-                # 返回平均MSE损失
                 loss = total_mse / K
                 return loss.item()
 
@@ -130,9 +117,8 @@ def process_audio_directory(audio_dir, model, device, output_file=None, loss_typ
 
     print(f"\n开始处理 {len(audio_files)} 个音频 (损失类型: {loss_type})")
     results = []
-    error_files = []  # 跟踪处理失败的文件
+    error_files = []
 
-    # Open output file if specified
     out_file = None
     if output_file:
         out_file = open(output_file, 'w')
@@ -143,18 +129,15 @@ def process_audio_directory(audio_dir, model, device, output_file=None, loss_typ
         loss = process_single_audio(audio_path, model, device, loss_type)
         if loss is not None:
             results.append((filename, loss))
-            # Write to file immediately if output file is specified
             if out_file:
                 out_file.write(f"{filename}: {loss:.8f}\n")
-                out_file.flush()  # Ensure data is written immediately
+                out_file.flush()
         else:
             error_files.append(filename)
 
-    # Close output file if opened
     if out_file:
         out_file.close()
 
-    # 将错误文件列表写入文件
     if error_files and device == "cuda":
         error_file_path = output_file + ".errors.txt" if output_file else "processing_errors.txt"
         with open(error_file_path, 'w') as f:
@@ -166,28 +149,20 @@ def process_audio_directory(audio_dir, model, device, output_file=None, loss_typ
     return results, error_files
 
 def get_missing_files(audio_dir, results_file):
-    """获取未处理的文件列表"""
-    # Get all audio files in directory
     all_audio_files = set(f for f in os.listdir(audio_dir)
                          if f.lower().endswith(('.wav', '.mp3')))
 
-    # Get processed files from results file
     processed_files = set()
-    try:
-        with open(results_file, 'r') as f:
-            for line in f:
-                if ':' in line:
-                    filename = line.split(':', 1)[0].strip()
-                    processed_files.add(filename)
-    except FileNotFoundError:
-        print(f"结果文件 {results_file} 不存在，将处理所有文件")
+    with open(results_file, 'r') as f:
+        for line in f:
+            if ':' in line:
+                filename = line.split(':', 1)[0].strip()
+                processed_files.add(filename)
 
-    # Return files that are in all_audio_files but not in processed_files
     missing_files = all_audio_files - processed_files
     return list(missing_files)
 
 def process_missing_files(audio_dir, results_file, loss_type="cross_entropy"):
-    """处理缺失的文件（使用CPU）"""
     missing_files = get_missing_files(audio_dir, results_file)
 
     if not missing_files:
@@ -196,25 +171,22 @@ def process_missing_files(audio_dir, results_file, loss_type="cross_entropy"):
 
     print(f"发现 {len(missing_files)} 个未处理的文件，将使用CPU处理 (损失类型: {loss_type})")
 
-    # Print all missing filenames before processing
     print("\n未处理的文件列表:")
     for filename in missing_files:
         print(f"{filename}")
     print("\n开始处理这些文件...\n")
 
-    # Load model on CPU
     device = "cpu"
     print(f"Using device: {device}")
     model = load_model(device)
 
-    # Open results file in append mode
     with open(results_file, 'a') as out_file:
         for filename in tqdm(missing_files, desc="CPU处理进度"):
             audio_path = os.path.join(audio_dir, filename)
             loss = process_single_audio(audio_path, model, device, loss_type)
             if loss is not None:
                 out_file.write(f"{filename}: {loss:.4f}\n")
-                out_file.flush()  # Ensure data is written immediately
+                out_file.flush()
 
 def main():
     parser = argparse.ArgumentParser(description="计算音频文件的loss值")
@@ -231,45 +203,34 @@ def main():
 
     args = parser.parse_args()
 
-    # Redirect stdout to file if output_file is specified and not processing missing files
     original_stdout = None
     if args.output_file and not args.process_missing:
         original_stdout = sys.stdout
         sys.stdout = open(args.output_file + ".log", 'w')
 
-    try:
-        if args.process_missing and args.output_file:
-            # Process missing files on CPU
-            process_missing_files(args.audio_dir, args.output_file, args.loss_type)
-        else:
-            # Normal processing
-            device = setup_device(args.force_cpu)
-            print(f"Using device: {device}")
+    if args.process_missing and args.output_file:
+        process_missing_files(args.audio_dir, args.output_file, args.loss_type)
+    else:
+        device = setup_device(args.force_cpu)
+        print(f"Using device: {device}")
 
-            model = load_model(device)
+        model = load_model(device)
 
-            assert os.path.isdir(args.audio_dir), f"目录不存在: {args.audio_dir}"
+        assert os.path.isdir(args.audio_dir), f"目录不存在: {args.audio_dir}"
 
-            results, error_files = process_audio_directory(
-                args.audio_dir, model, device, args.output_file, args.loss_type
-            )
+        results, error_files = process_audio_directory(
+            args.audio_dir, model, device, args.output_file, args.loss_type
+        )
 
-            if not args.output_file:
-                print("\n处理结果:")
-                for filename, loss in results:
-                    print(f"{filename}: {loss:.4f}")
+        if not args.output_file:
+            print("\n处理结果:")
+            for filename, loss in results:
+                print(f"{filename}: {loss:.4f}")
 
-    except Exception as e:
-        print(f"错误发生: {str(e)}")
-    finally:
-        if 'device' in locals() and device == 'cuda':
-            torch.cuda.empty_cache()
-        print("显存已清理")
-
-        # Restore stdout if redirected
-        if original_stdout:
-            sys.stdout.close()
-            sys.stdout = original_stdout
+    # Restore stdout if redirected
+    if original_stdout:
+        sys.stdout.close()
+        sys.stdout = original_stdout
 
 if __name__ == "__main__":
     main()

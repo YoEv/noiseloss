@@ -31,10 +31,8 @@ class ProcessingPipeline:
             output_base_dir: Base output directory
             output_dir: Directory for this specific MIDI file
         """
-        # processor_path = self._get_processor_path(param_name)
         config_path = self.config_base / f"{param_name}_actions.yaml"
         Processor = self._load_processor(param_name, config_path)
-        # 直接调用处理器的process（由处理器自行处理action/steps）
         Processor.process(midi_data, output_base_dir, output_dir)
 
         return {
