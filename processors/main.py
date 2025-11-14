@@ -5,8 +5,6 @@ from datetime import datetime
 from pretty_midi import PrettyMIDI
 from engine.pipeline import ProcessingPipeline
 from engine.parser import ConfigParser
-
-#目录结构更改，log保存，ori命名，actions调用
 class ExperimentRunner:
     def __init__(self, config_dir='configs'):
         self.pipeline = ProcessingPipeline(config_dir)
@@ -17,131 +15,101 @@ class ExperimentRunner:
 
     def _validate_all_configs(self):
         for param in self.parser.get_available_parameters():
-            try:
-                self.parser.parse_parameter(param)
-            except Exception as e:
-                raise RuntimeError(f"参数'{param}'配置验证失败: {str(e)}") from e
+            self.parser.parse_parameter(param)
+
 
     def _log_error(self, error_data):
         error_data['timestamp'] = datetime.now().isoformat()
         self.error_log.append(error_data)
 
     def _process_single_file(self, input_path, output_base_dir, output_dir, param=None):
-        try:
-            midi = PrettyMIDI(input_path)
-            midi.filename = os.path.basename(input_path)
-            os.makedirs(output_dir, exist_ok=True)
+        midi = PrettyMIDI(input_path)
+        midi.filename = os.path.basename(input_path)
+        os.makedirs(output_dir, exist_ok=True)
 
-            orig_path = os.path.join(output_dir, f"{midi.filename}_ori.mid")
-            midi.write(orig_path)
+        orig_path = os.path.join(output_dir, f"{midi.filename}_ori.mid")
+        midi.write(orig_path)
 
-            # Process only the specified parameter or all parameters
-            all_results = {}
-            params_to_process = [param] if param else self.parser.get_available_parameters()
+        all_results = {}
+        params_to_process = [param] if param else self.parser.get_available_parameters()
 
-            for param_name in params_to_process:
-                param_results = self.pipeline.process_parameter(
-                    midi_data=midi,
-                    param_name=param_name, #动态加载processor
-                    output_base_dir=output_base_dir,
-                    output_dir=output_dir,
-                    # config_override=None
-                )
-                all_results[param_name] = param_results
+        for param_name in params_to_process:
+            param_results = self.pipeline.process_parameter(
+                midi_data=midi,
+                param_name=param_name,
+                output_base_dir=output_base_dir,
+                output_dir=output_dir,
+            )
+            all_results[param_name] = param_results
 
-            log_entry = {
-                'input_file': input_path,
-                'output_dir': output_dir,
-                'timestamp': datetime.now().isoformat(),
-                'results': all_results,
-                'status': 'success'
-            }
-            self.experiment_log.append(log_entry)
-            return all_results
-
-        except Exception as e:
-            error_entry = {
-                'input_file': input_path,
-                'error': str(e),
-                'timestamp': datetime.now().isoformat()
-            }
-            self._log_error(error_entry)
-            return {'status': 'failed', 'error': str(e)}
+        log_entry = {
+            'input_file': input_path,
+            'output_dir': output_dir,
+            'timestamp': datetime.now().isoformat(),
+            'results': all_results,
+            'status': 'success'
+        }
+        self.experiment_log.append(log_entry)
+        return all_results
 
 
     def run_experiment(self, input_path, output_base_dir, selected_params=None):
-        """运行完整实验
-        Args:
-            input_path: 输入路径，可以是文件或目录
-            output_base_dir: 实验基础输出目录
-                        (将在此目录下创建结构化的子目录)
-            selected_params: 要处理的参数列表，如果为None或"all"则处理所有参数
-        """
-        try:
-            os.makedirs(output_base_dir, exist_ok=True)
-            logs_dir = os.path.join(output_base_dir, 'logs')
-            os.makedirs(logs_dir, exist_ok=True)
+        os.makedirs(output_base_dir, exist_ok=True)
+        logs_dir = os.path.join(output_base_dir, 'logs')
+        os.makedirs(logs_dir, exist_ok=True)
 
-            # Determine which parameters to process
-            if selected_params == "all" or selected_params is None:
-                params_to_process = self.parser.get_available_parameters()
-            else:
-                params_to_process = selected_params if isinstance(selected_params, list) else [selected_params]
-                # Validate that all selected parameters exist
-                available_params = self.parser.get_available_parameters()
-                for param in params_to_process:
-                    if param not in available_params:
-                        raise ValueError(f"Parameter '{param}' is not available. Available parameters: {available_params}")
-
-            # Create output directories for selected parameters
+        if selected_params == "all" or selected_params is None:
+            params_to_process = self.parser.get_available_parameters()
+        else:
+            params_to_process = selected_params if isinstance(selected_params, list) else [selected_params]
+            available_params = self.parser.get_available_parameters()
             for param in params_to_process:
-                param_config = self.parser.parse_parameter(param)
-                action_dir = param_config.get('output_dir', f'{param}_processed')
-                os.makedirs(os.path.join(output_base_dir, action_dir), exist_ok=True)
+                if param not in available_params:
+                    raise ValueError(f"Parameter '{param}' is not available. Available parameters: {available_params}")
 
-            # Get all MIDI files if input is a directory
-            midi_files = []
-            if os.path.isdir(input_path):
-                midi_files = [f for f in os.listdir(input_path) if f.endswith('.mid')]
-                counter = 0
-                midi_files_limited = []
-                for fname in midi_files:
-                    midi_files_limited.append(fname)
-                    counter += 1
-                    #if counter >= 4:
-                    #    break
-                midi_files = midi_files_limited
-            else:
-                midi_files = [os.path.basename(input_path)]
-                input_path = os.path.dirname(input_path) or '.'
+        for param in params_to_process:
+            param_config = self.parser.parse_parameter(param)
+            action_dir = param_config.get('output_dir', f'{param}_processed')
+            os.makedirs(os.path.join(output_base_dir, action_dir), exist_ok=True)
 
-            for param in params_to_process:
-                param_config = self.parser.parse_parameter(param)
-                action_dir = param_config.get('output_dir', f'{param}_processed')
+        midi_files = []
+        if os.path.isdir(input_path):
+            midi_files = [f for f in os.listdir(input_path) if f.endswith('.mid')]
+            counter = 0
+            midi_files_limited = []
+            for fname in midi_files:
+                midi_files_limited.append(fname)
+                counter += 1
+                #if counter >= 4:
+                #    break
+            midi_files = midi_files_limited
+        else:
+            midi_files = [os.path.basename(input_path)]
+            input_path = os.path.dirname(input_path) or '.'
 
-                for fname in midi_files:
-                    input_file_path = os.path.join(input_path, fname)
-                    base_name = os.path.splitext(fname)[0]
+        for param in params_to_process:
+            param_config = self.parser.parse_parameter(param)
+            action_dir = param_config.get('output_dir', f'{param}_processed')
 
-                    file_output_dir = os.path.join(
-                        output_base_dir,
-                        action_dir,
-                        base_name
-                    )
+            for fname in midi_files:
+                input_file_path = os.path.join(input_path, fname)
+                base_name = os.path.splitext(fname)[0]
 
-                    self._process_single_file(
-                        input_file_path,
-                        output_base_dir,
-                        file_output_dir,
-                        param=param
-                    )
+                file_output_dir = os.path.join(
+                    output_base_dir,
+                    action_dir,
+                    base_name
+                )
 
-            self._save_logs(output_base_dir)
-            return self._generate_report(output_base_dir)
+                self._process_single_file(
+                    input_file_path,
+                    output_base_dir,
+                    file_output_dir,
+                    param=param
+                )
 
-        except Exception as e:
-            self._log_error({'stage': 'experiment_flow', 'error': str(e)})
-            raise
+        self._save_logs(output_base_dir)
+        return self._generate_report(output_base_dir)
 
     def _save_logs(self, output_base_dir):
         logs_dir = os.path.join(output_base_dir, 'logs')

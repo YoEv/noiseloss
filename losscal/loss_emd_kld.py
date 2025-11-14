@@ -25,37 +25,32 @@ def extract_features(audio_path, sr=22050, n_mfcc=20, n_mels=128, n_fft=2048, ho
     Returns:
         dict: Dictionary containing extracted features
     """
-    try:
-        # Load audio file
-        y, sr = librosa.load(audio_path, sr=sr)
+    # Load audio file
+    y, sr = librosa.load(audio_path, sr=sr)
 
-        # Extract STFT
-        stft = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
+    # Extract STFT
+    stft = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
 
-        # Extract mel spectrogram
-        mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels,
-                                                n_fft=n_fft, hop_length=hop_length)
+    # Extract mel spectrogram
+    mel_spec = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=n_mels,
+                                            n_fft=n_fft, hop_length=hop_length)
 
-        # Extract MFCCs
-        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, n_fft=n_fft,
-                                   hop_length=hop_length)
+    # Extract MFCCs
+    mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=n_mfcc, n_fft=n_fft,
+                                hop_length=hop_length)
 
-        # Normalize features to ensure they sum to 1 for probability distributions
-        stft_norm = stft / np.sum(stft)
-        mel_spec_norm = mel_spec / np.sum(mel_spec)
-        mfcc_norm = (mfcc - np.min(mfcc)) / (np.max(mfcc) - np.min(mfcc) + 1e-10)
-        mfcc_norm = mfcc_norm / np.sum(mfcc_norm)
+    # Normalize features to ensure they sum to 1 for probability distributions
+    stft_norm = stft / np.sum(stft)
+    mel_spec_norm = mel_spec / np.sum(mel_spec)
+    mfcc_norm = (mfcc - np.min(mfcc)) / (np.max(mfcc) - np.min(mfcc) + 1e-10)
+    mfcc_norm = mfcc_norm / np.sum(mfcc_norm)
 
-        return {
-            'mfcc': mfcc_norm,
-            'mel_spec': mel_spec_norm,
-            'stft': stft_norm,
-            'filename': os.path.basename(audio_path)
-        }
-    except Exception as e:
-        print(f"Error extracting features from {audio_path}: {e}")
-        return None
-
+    return {
+        'mfcc': mfcc_norm,
+        'mel_spec': mel_spec_norm,
+        'stft': stft_norm,
+        'filename': os.path.basename(audio_path)
+    }
 
 def compute_emd(dist1, dist2):
     """

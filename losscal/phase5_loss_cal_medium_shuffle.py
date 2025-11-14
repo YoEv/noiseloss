@@ -70,116 +70,108 @@ def _compute_cross_entropy(
 
 def save_tokens_as_csv(ce_per_token, audio_path, token_output_dir, relative_path=None):
     """Save per-token losses to CSV file"""
-    try:
-        ce_np = ce_per_token.detach().cpu().numpy()
-        avg_records = []
+    ce_np = ce_per_token.detach().cpu().numpy()
+    avg_records = []
 
-        if ce_np.ndim == 3:  # (B, K, T)
-            B, K, T = ce_np.shape
-            for b in range(B):
-                for t in range(T):
-                    token_avg = float(ce_np[b, :, t].mean())
-                    avg_records.append({'token_position': t, 'avg_loss_value': token_avg})
-        elif ce_np.ndim == 2:  # (K, T)
-            K, T = ce_np.shape
+    if ce_np.ndim == 3:  # (B, K, T)
+        B, K, T = ce_np.shape
+        for b in range(B):
             for t in range(T):
-                token_avg = float(ce_np[:, t].mean())
+                token_avg = float(ce_np[b, :, t].mean())
                 avg_records.append({'token_position': t, 'avg_loss_value': token_avg})
+    elif ce_np.ndim == 2:  # (K, T)
+        K, T = ce_np.shape
+        for t in range(T):
+            token_avg = float(ce_np[:, t].mean())
+            avg_records.append({'token_position': t, 'avg_loss_value': token_avg})
 
-        if avg_records:
-            # Create output directory
-            os.makedirs(token_output_dir, exist_ok=True)
-            
-            # Get filename without extension
-            base_name = os.path.splitext(os.path.basename(audio_path))[0]
-            
-            # Create CSV path
-            if relative_path and relative_path != '.':
-                csv_subdir = os.path.join(token_output_dir, relative_path)
-                os.makedirs(csv_subdir, exist_ok=True)
-                csv_path = os.path.join(csv_subdir, f"{base_name}_per_token.csv")
-            else:
-                csv_path = os.path.join(token_output_dir, f"{base_name}_per_token.csv")
-            
-            avg_df = pd.DataFrame(avg_records)
-            avg_df.to_csv(csv_path, index=False)
-            print(f"Saved {len(avg_records)} records to {csv_path}")
-            overall_mean = avg_df['avg_loss_value'].mean()
-            print(f"Overall average loss: {overall_mean:.6f}")
-            return overall_mean
+    if avg_records:
+        # Create output directory
+        os.makedirs(token_output_dir, exist_ok=True)
+        
+        # Get filename without extension
+        base_name = os.path.splitext(os.path.basename(audio_path))[0]
+        
+        # Create CSV path
+        if relative_path and relative_path != '.':
+            csv_subdir = os.path.join(token_output_dir, relative_path)
+            os.makedirs(csv_subdir, exist_ok=True)
+            csv_path = os.path.join(csv_subdir, f"{base_name}_per_token.csv")
         else:
-            print(f"No data to save: {audio_path}")
-            return None
-    except Exception as e:
-        print(f"Error saving CSV for {audio_path}: {str(e)}")
+            csv_path = os.path.join(token_output_dir, f"{base_name}_per_token.csv")
+        
+        avg_df = pd.DataFrame(avg_records)
+        avg_df.to_csv(csv_path, index=False)
+        print(f"Saved {len(avg_records)} records to {csv_path}")
+        overall_mean = avg_df['avg_loss_value'].mean()
+        print(f"Overall average loss: {overall_mean:.6f}")
+        return overall_mean
+    else:
+        print(f"No data to save: {audio_path}")
         return None
 
 def process_single_audio(audio_path, model, processor, device, reduction="mean", token_output_dir=None, relative_path=None):
     """Process a single audio file"""
-    try:
-        # Read audio
-        if device.type == "cuda":
-            audio_data, sample_rate = audio_read(audio_path)
-            audio_data = audio_data.mean(dim=0, keepdim=True)
-            if sample_rate != 32000:
-                audio_data = torchaudio.functional.resample(audio_data, sample_rate, 32000)
-            audio_data = audio_data.to(device)
-            valid_token_length = min(audio_data.shape[-1] // 320, 1500)
-        else:
-            audio_data, sample_rate = librosa.load(audio_path, sr=32000, mono=True)
-            audio_data = torch.tensor(audio_data).unsqueeze(0).to(device)
-            valid_token_length = min(audio_data.shape[-1] // 320, 1500)
+    # Read audio
+    if device.type == "cuda":
+        audio_data, sample_rate = audio_read(audio_path)
+        audio_data = audio_data.mean(dim=0, keepdim=True)
+        if sample_rate != 32000:
+            audio_data = torchaudio.functional.resample(audio_data, sample_rate, 32000)
+        audio_data = audio_data.to(device)
+        valid_token_length = min(audio_data.shape[-1] // 320, 1500)
+    else:
+        audio_data, sample_rate = librosa.load(audio_path, sr=32000, mono=True)
+        audio_data = torch.tensor(audio_data).unsqueeze(0).to(device)
+        valid_token_length = min(audio_data.shape[-1] // 320, 1500)
+    
+    with torch.no_grad():
+        # Encode audio using the correct method
+        encoded = model.audio_encoder.encode(audio_data.unsqueeze(0))
+        tokens = encoded.audio_codes.long()
         
-        with torch.no_grad():
-            # Encode audio using the correct method
-            encoded = model.audio_encoder.encode(audio_data.unsqueeze(0))
-            tokens = encoded.audio_codes.long()
-            
-        B, C, K, T = tokens.shape
-        input_tokens = tokens[:, :, :, :-1].contiguous()
-        target_tokens = tokens[:, :, :, 1:].contiguous()
+    B, C, K, T = tokens.shape
+    input_tokens = tokens[:, :, :, :-1].contiguous()
+    target_tokens = tokens[:, :, :, 1:].contiguous()
+    
+    # Create mask
+    mask = torch.zeros_like(target_tokens, dtype=torch.bool)
+    for b in range(B):
+        for c in range(C):
+            mask[b, c, :, :valid_token_length] = True
+    
+    with torch.no_grad():
+        with torch.autocast(device_type='cuda', enabled=False):
+            input_tokens_reshaped = input_tokens.view(B, C * K, -1)
+            model.decoder = model.decoder.to(dtype=torch.float32)
+            outputs = model.decoder(input_tokens_reshaped)
+            output_logits = outputs.logits
         
-        # Create mask
-        mask = torch.zeros_like(target_tokens, dtype=torch.bool)
-        for b in range(B):
-            for c in range(C):
-                mask[b, c, :, :valid_token_length] = True
+        logits = output_logits.view(B, C, K, -1, output_logits.size(-1))
         
-        with torch.no_grad():
-            with torch.autocast(device_type='cuda', enabled=False):
-                input_tokens_reshaped = input_tokens.view(B, C * K, -1)
-                model.decoder = model.decoder.to(dtype=torch.float32)
-                outputs = model.decoder(input_tokens_reshaped)
-                output_logits = outputs.logits
+        if reduction == "none":
+            # Compute per-token loss
+            ce_per_token = _compute_cross_entropy(
+                logits.view(B * C, K, -1, output_logits.size(-1)), 
+                target_tokens.view(B * C, K, -1), 
+                mask.view(B * C, K, -1),
+                reduction=reduction)
             
-            logits = output_logits.view(B, C, K, -1, output_logits.size(-1))
-            
-            if reduction == "none":
-                # Compute per-token loss
-                ce_per_token = _compute_cross_entropy(
-                    logits.view(B * C, K, -1, output_logits.size(-1)), 
-                    target_tokens.view(B * C, K, -1), 
-                    mask.view(B * C, K, -1),
-                    reduction=reduction)
-                
-                if token_output_dir:
-                    # Save as CSV and return average loss
-                    avg_loss = save_tokens_as_csv(ce_per_token, audio_path, token_output_dir, relative_path)
-                    return avg_loss if avg_loss is not None else ce_per_token.mean().item()
-                else:
-                    return ce_per_token.mean().item()
+            if token_output_dir:
+                # Save as CSV and return average loss
+                avg_loss = save_tokens_as_csv(ce_per_token, audio_path, token_output_dir, relative_path)
+                return avg_loss if avg_loss is not None else ce_per_token.mean().item()
             else:
-                # Compute average loss
-                ce_loss = _compute_cross_entropy(
-                    logits.view(B * C, K, -1, output_logits.size(-1)), 
-                    target_tokens.view(B * C, K, -1), 
-                    mask.view(B * C, K, -1),
-                    reduction=reduction)
-                return ce_loss.item()
-                
-    except Exception as e:
-        print(f"Error processing {audio_path}: {str(e)}")
-        return None
+                return ce_per_token.mean().item()
+        else:
+            # Compute average loss
+            ce_loss = _compute_cross_entropy(
+                logits.view(B * C, K, -1, output_logits.size(-1)), 
+                target_tokens.view(B * C, K, -1), 
+                mask.view(B * C, K, -1),
+                reduction=reduction)
+            return ce_loss.item()
+
 
 def process_audio_directory(audio_dir, model, processor, device, output_file=None, reduction="mean", token_output_dir=None):
     """Process all audio files in the directory with specific suffixes"""

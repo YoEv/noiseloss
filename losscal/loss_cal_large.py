@@ -93,130 +93,123 @@ def _compute_cross_entropy(
 # 在process_single_audio函数中启用混合精度
 # 在函数参数中添加batch_size和max_audio_length参数
 def process_single_audio(audio_path, model, processor, device, loss_type="cross_entropy", max_audio_length=None, chunk_size=None):
-    try:
-        audio, sr = audio_read(audio_path)
+    audio, sr = audio_read(audio_path)
 
-        if audio.dim() > 1 and audio.shape[0] > 1:
-            audio = audio.mean(dim=0, keepdim=True)
+    if audio.dim() > 1 and audio.shape[0] > 1:
+        audio = audio.mean(dim=0, keepdim=True)
 
-        if max_audio_length is not None and audio.shape[-1] > max_audio_length:
-            audio = audio[..., :max_audio_length]
-            print(f"音频已截断至 {max_audio_length/sr:.2f} 秒")
+    if max_audio_length is not None and audio.shape[-1] > max_audio_length:
+        audio = audio[..., :max_audio_length]
+        print(f"音频已截断至 {max_audio_length/sr:.2f} 秒")
 
-        audio = audio.to(device)
-        original_length = audio.shape[-1]
+    audio = audio.to(device)
+    original_length = audio.shape[-1]
 
-        # Calculate frame rate from model config
-        frame_rate = model.config.audio_encoder.frame_rate
-        valid_token_length = int((original_length / sr) * frame_rate) - 1
+    # Calculate frame rate from model config
+    frame_rate = model.config.audio_encoder.frame_rate
+    valid_token_length = int((original_length / sr) * frame_rate) - 1
 
-        # Process in chunks if specified
-        if chunk_size and valid_token_length > chunk_size and device == "cuda":
-            print(f"将音频分成多个块处理，每块 {chunk_size} 个token")
-            total_loss = 0
-            num_chunks = 0
+    # Process in chunks if specified
+    if chunk_size and valid_token_length > chunk_size and device == "cuda":
+        print(f"将音频分成多个块处理，每块 {chunk_size} 个token")
+        total_loss = 0
+        num_chunks = 0
+        
+        for start_idx in range(0, valid_token_length, chunk_size):
+            end_idx = min(start_idx + chunk_size, valid_token_length)
+            chunk_length = end_idx - start_idx
             
-            for start_idx in range(0, valid_token_length, chunk_size):
-                end_idx = min(start_idx + chunk_size, valid_token_length)
-                chunk_length = end_idx - start_idx
-                
-                # Calculate audio sample indices
-                audio_start = int(start_idx * sr / frame_rate)
-                audio_end = int((end_idx + 1) * sr / frame_rate)  # +1 for the target token
-                audio_chunk = audio[..., audio_start:audio_end]
-                
-                # Process chunk
-                with torch.no_grad():
-                    with torch.cuda.amp.autocast(enabled=device=="cuda"):
-                        encoded = model.audio_encoder.encode(audio_chunk.unsqueeze(0))
-                        tokens = encoded.audio_codes.long()
-                        
-                        B, C, K, T = tokens.shape
-                        input_tokens = tokens[:, :, :, :-1].contiguous()
-                        target_tokens = tokens[:, :, :, 1:].contiguous()
-                        
-                        # Create mask for valid tokens
-                        mask = torch.zeros_like(target_tokens, dtype=torch.bool)
-                        for b in range(B):
-                            for c in range(C):
-                                mask[b, c, :, :chunk_length] = True
-                        
-                        # Calculate loss
-                        input_tokens_reshaped = input_tokens.view(B, C * K, -1)
-                        outputs = model.decoder(input_tokens_reshaped)
-                        output_logits = outputs.logits
-                        
-                        if loss_type == "cross_entropy":
-                            logits = output_logits.view(B, C, K, -1, output_logits.size(-1))
-                            ce, _ = _compute_cross_entropy(
-                                logits.view(B * C, K, -1, output_logits.size(-1)), 
-                                target_tokens.view(B * C, K, -1), 
-                                mask.view(B * C, K, -1))
-                            total_loss += ce.item() * chunk_length
-                        else:  # MSE loss
-                            sample_logits = output_logits.view(B, C, K, -1, output_logits.size(-1))[0, 0, :, :chunk_length, :].reshape(-1, output_logits.size(-1))
-                            sample_target = target_tokens[0, 0, :, :chunk_length].reshape(-1)
-                            target_one_hot = torch.zeros_like(sample_logits)
-                            target_one_hot.scatter_(1, sample_target.unsqueeze(1), 1.0)
-                            loss = torch.nn.functional.mse_loss(
-                                torch.softmax(sample_logits, dim=1),
-                                target_one_hot,
-                                reduction='mean'
-                            )
-                            total_loss += loss.item() * chunk_length
-                
-                num_chunks += 1
-                # Clear cache after each chunk
-                if device == "cuda":
-                    torch.cuda.empty_cache()
-                    gc.collect()
+            # Calculate audio sample indices
+            audio_start = int(start_idx * sr / frame_rate)
+            audio_end = int((end_idx + 1) * sr / frame_rate)  # +1 for the target token
+            audio_chunk = audio[..., audio_start:audio_end]
             
-            # Average loss by total tokens
-            return total_loss / valid_token_length
-        else:
-            # Original processing for smaller files
+            # Process chunk
             with torch.no_grad():
                 with torch.cuda.amp.autocast(enabled=device=="cuda"):
-                    encoded = model.audio_encoder.encode(audio.unsqueeze(0))
+                    encoded = model.audio_encoder.encode(audio_chunk.unsqueeze(0))
                     tokens = encoded.audio_codes.long()
                     
                     B, C, K, T = tokens.shape
                     input_tokens = tokens[:, :, :, :-1].contiguous()
                     target_tokens = tokens[:, :, :, 1:].contiguous()
                     
+                    # Create mask for valid tokens
                     mask = torch.zeros_like(target_tokens, dtype=torch.bool)
                     for b in range(B):
                         for c in range(C):
-                            mask[b, c, :, :valid_token_length] = True
+                            mask[b, c, :, :chunk_length] = True
                     
+                    # Calculate loss
                     input_tokens_reshaped = input_tokens.view(B, C * K, -1)
                     outputs = model.decoder(input_tokens_reshaped)
                     output_logits = outputs.logits
+                    
+                    if loss_type == "cross_entropy":
+                        logits = output_logits.view(B, C, K, -1, output_logits.size(-1))
+                        ce, _ = _compute_cross_entropy(
+                            logits.view(B * C, K, -1, output_logits.size(-1)), 
+                            target_tokens.view(B * C, K, -1), 
+                            mask.view(B * C, K, -1))
+                        total_loss += ce.item() * chunk_length
+                    else:  # MSE loss
+                        sample_logits = output_logits.view(B, C, K, -1, output_logits.size(-1))[0, 0, :, :chunk_length, :].reshape(-1, output_logits.size(-1))
+                        sample_target = target_tokens[0, 0, :, :chunk_length].reshape(-1)
+                        target_one_hot = torch.zeros_like(sample_logits)
+                        target_one_hot.scatter_(1, sample_target.unsqueeze(1), 1.0)
+                        loss = torch.nn.functional.mse_loss(
+                            torch.softmax(sample_logits, dim=1),
+                            target_one_hot,
+                            reduction='mean'
+                        )
+                        total_loss += loss.item() * chunk_length
+            
+            num_chunks += 1
+            # Clear cache after each chunk
+            if device == "cuda":
+                torch.cuda.empty_cache()
+                gc.collect()
+        
+        # Average loss by total tokens
+        return total_loss / valid_token_length
+    else:
+        # Original processing for smaller files
+        with torch.no_grad():
+            with torch.cuda.amp.autocast(enabled=device=="cuda"):
+                encoded = model.audio_encoder.encode(audio.unsqueeze(0))
+                tokens = encoded.audio_codes.long()
                 
-                if loss_type == "cross_entropy":
-                    logits = output_logits.view(B, C, K, -1, output_logits.size(-1))
-                    ce, _ = _compute_cross_entropy(
-                        logits.view(B * C, K, -1, output_logits.size(-1)), 
-                        target_tokens.view(B * C, K, -1), 
-                        mask.view(B * C, K, -1))
-                    return ce.item()
-                else:  # MSE loss
-                    sample_logits = output_logits.view(B, C, K, -1, output_logits.size(-1))[0, 0, :, :valid_token_length, :].reshape(-1, output_logits.size(-1))
-                    sample_target = target_tokens[0, 0, :, :valid_token_length].reshape(-1)
-                    target_one_hot = torch.zeros_like(sample_logits)
-                    target_one_hot.scatter_(1, sample_target.unsqueeze(1), 1.0)
-                    loss = torch.nn.functional.mse_loss(
-                        torch.softmax(sample_logits, dim=1),
-                        target_one_hot,
-                        reduction='mean'
-                    )
-                    return loss.item()
-
-    except Exception as e:
-        print(f"处理 {os.path.basename(audio_path)} 时出错: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None
+                B, C, K, T = tokens.shape
+                input_tokens = tokens[:, :, :, :-1].contiguous()
+                target_tokens = tokens[:, :, :, 1:].contiguous()
+                
+                mask = torch.zeros_like(target_tokens, dtype=torch.bool)
+                for b in range(B):
+                    for c in range(C):
+                        mask[b, c, :, :valid_token_length] = True
+                
+                input_tokens_reshaped = input_tokens.view(B, C * K, -1)
+                outputs = model.decoder(input_tokens_reshaped)
+                output_logits = outputs.logits
+            
+            if loss_type == "cross_entropy":
+                logits = output_logits.view(B, C, K, -1, output_logits.size(-1))
+                ce, _ = _compute_cross_entropy(
+                    logits.view(B * C, K, -1, output_logits.size(-1)), 
+                    target_tokens.view(B * C, K, -1), 
+                    mask.view(B * C, K, -1))
+                return ce.item()
+            else:  # MSE loss
+                sample_logits = output_logits.view(B, C, K, -1, output_logits.size(-1))[0, 0, :, :valid_token_length, :].reshape(-1, output_logits.size(-1))
+                sample_target = target_tokens[0, 0, :, :valid_token_length].reshape(-1)
+                target_one_hot = torch.zeros_like(sample_logits)
+                target_one_hot.scatter_(1, sample_target.unsqueeze(1), 1.0)
+                loss = torch.nn.functional.mse_loss(
+                    torch.softmax(sample_logits, dim=1),
+                    target_one_hot,
+                    reduction='mean'
+                )
+                return loss.item()
 
 # 修改process_audio_directory函数以分批处理文件
 def process_audio_directory(audio_dir, model, processor, device, output_file=None, loss_type="cross_entropy", batch_size=1, max_audio_length=None, chunk_size=None):
@@ -279,14 +272,11 @@ def get_missing_files(audio_dir, results_file):
 
     # Get processed files from results file
     processed_files = set()
-    try:
-        with open(results_file, 'r') as f:
-            for line in f:
-                if ':' in line:
-                    filename = line.split(':', 1)[0].strip()
-                    processed_files.add(filename)
-    except FileNotFoundError:
-        print(f"结果文件 {results_file} 不存在，将处理所有文件")
+    with open(results_file, 'r') as f:
+        for line in f:
+            if ':' in line:
+                filename = line.split(':', 1)[0].strip()
+                processed_files.add(filename)
 
     # Return files that are in all_audio_files but not in processed_files
     missing_files = all_audio_files - processed_files
@@ -348,59 +338,54 @@ def process_huggingface_dataset(dataset_name, model, processor, device, output_f
     # 创建临时目录来存储音频文件
     temp_dir = tempfile.mkdtemp()
     
-    try:
-        # 分批处理数据集
-        for i in range(0, len(data_split), batch_size):
-            batch_data = data_split[i:i+batch_size]
-            print(f"处理批次 {i//batch_size + 1}/{(len(data_split) + batch_size - 1)//batch_size}")
-            
-            for idx, sample in enumerate(tqdm(batch_data, desc="处理进度")):
-                # 获取音频数据和文件名
-                if 'audio' in sample:
-                    audio_data = sample['audio']
-                    # 生成文件名，不添加_ori后缀
-                    if 'path' in sample:
-                        original_filename = os.path.basename(sample['path'])
-                        filename_without_ext = os.path.splitext(original_filename)[0]
-                        filename = f"{filename_without_ext}.wav"
-                    else:
-                        filename = f"sample_{i+idx}.wav"
-                    
-                    # 保存音频到临时文件
-                    temp_audio_path = os.path.join(temp_dir, filename)
-                    
-                    # 如果音频数据是字典格式（包含array和sampling_rate）
-                    if isinstance(audio_data, dict) and 'array' in audio_data:
-                        sf.write(temp_audio_path, audio_data['array'], audio_data['sampling_rate'])
-                    else:
-                        # 如果是其他格式，尝试直接保存
-                        print(f"警告: 音频数据格式未知，跳过样本 {filename}")
-                        continue
-                    
-                    # 处理音频文件
-                    loss = process_single_audio(temp_audio_path, model, processor, device, loss_type, max_audio_length, chunk_size)
-                    
-                    if loss is not None:
-                        results.append((filename, loss))
-                        if out_file:
-                            out_file.write(f"{filename}: {loss:.8f}\n")
-                            out_file.flush()
-                    else:
-                        error_files.append(filename)
-                    
-                    # 删除临时文件
-                    if os.path.exists(temp_audio_path):
-                        os.remove(temp_audio_path)
-            
-            # 每批处理完后清理缓存
-            if device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
-                print("批次处理完成，已清理显存")
-    
-    finally:
-        # 清理临时目录
-        shutil.rmtree(temp_dir)
+    # 分批处理数据集
+    for i in range(0, len(data_split), batch_size):
+        batch_data = data_split[i:i+batch_size]
+        print(f"处理批次 {i//batch_size + 1}/{(len(data_split) + batch_size - 1)//batch_size}")
+        
+        for idx, sample in enumerate(tqdm(batch_data, desc="处理进度")):
+            # 获取音频数据和文件名
+            if 'audio' in sample:
+                audio_data = sample['audio']
+                # 生成文件名，不添加_ori后缀
+                if 'path' in sample:
+                    original_filename = os.path.basename(sample['path'])
+                    filename_without_ext = os.path.splitext(original_filename)[0]
+                    filename = f"{filename_without_ext}.wav"
+                else:
+                    filename = f"sample_{i+idx}.wav"
+                
+                # 保存音频到临时文件
+                temp_audio_path = os.path.join(temp_dir, filename)
+                
+                # 如果音频数据是字典格式（包含array和sampling_rate）
+                if isinstance(audio_data, dict) and 'array' in audio_data:
+                    sf.write(temp_audio_path, audio_data['array'], audio_data['sampling_rate'])
+                else:
+                    # 如果是其他格式，尝试直接保存
+                    print(f"警告: 音频数据格式未知，跳过样本 {filename}")
+                    continue
+                
+                # 处理音频文件
+                loss = process_single_audio(temp_audio_path, model, processor, device, loss_type, max_audio_length, chunk_size)
+                
+                if loss is not None:
+                    results.append((filename, loss))
+                    if out_file:
+                        out_file.write(f"{filename}: {loss:.8f}\n")
+                        out_file.flush()
+                else:
+                    error_files.append(filename)
+                
+                # 删除临时文件
+                if os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
+        
+        # 每批处理完后清理缓存
+        if device == "cuda":
+            torch.cuda.empty_cache()
+            gc.collect()
+            print("批次处理完成，已清理显存")
         
         # 关闭输出文件
         if out_file:
@@ -452,52 +437,44 @@ def main():
         original_stdout = sys.stdout
         sys.stdout = open(args.output_file + ".log", 'w')
 
-    try:
-        if args.process_missing and args.output_file:
-            # Process missing files on CPU
-            process_missing_files(args.audio_dir, args.output_file, args.loss_type)
-        elif args.dataset_name:
-            # Process Hugging Face dataset
-            device = setup_device(args.force_cpu)
-            print(f"Using device: {device}")
+    if args.process_missing and args.output_file:
+        # Process missing files on CPU
+        process_missing_files(args.audio_dir, args.output_file, args.loss_type)
+    elif args.dataset_name:
+        # Process Hugging Face dataset
+        device = setup_device(args.force_cpu)
+        print(f"Using device: {device}")
 
-            # 先加载模型
-            model, processor = load_model(device, args.offload_folder, args.use_8bit, args.use_4bit)
-            
-            results, error_files = process_huggingface_dataset(
-                args.dataset_name, model, processor, device, args.output_file, args.loss_type,
-                batch_size=args.batch_size, max_audio_length=args.max_audio_length, chunk_size=args.chunk_size
-            )
-            
-            if not args.output_file:
-                print("\n处理结果:")
-                for filename, loss in results:
-                    print(f"{filename}: {loss:.4f}")
-        else:
-            # Normal directory processing
-            device = setup_device(args.force_cpu)
-            print(f"Using device: {device}")
+        # 先加载模型
+        model, processor = load_model(device, args.offload_folder, args.use_8bit, args.use_4bit)
+        
+        results, error_files = process_huggingface_dataset(
+            args.dataset_name, model, processor, device, args.output_file, args.loss_type,
+            batch_size=args.batch_size, max_audio_length=args.max_audio_length, chunk_size=args.chunk_size
+        )
+        
+        if not args.output_file:
+            print("\n处理结果:")
+            for filename, loss in results:
+                print(f"{filename}: {loss:.4f}")
+    else:
+        # Normal directory processing
+        device = setup_device(args.force_cpu)
+        print(f"Using device: {device}")
 
-            model, processor = load_model(device, args.offload_folder, args.use_8bit, args.use_4bit)
+        model, processor = load_model(device, args.offload_folder, args.use_8bit, args.use_4bit)
 
-            assert os.path.isdir(args.audio_dir), f"目录不存在: {args.audio_dir}"
+        assert os.path.isdir(args.audio_dir), f"目录不存在: {args.audio_dir}"
 
-            results, error_files = process_audio_directory(
-                args.audio_dir, model, processor, device, args.output_file, args.loss_type,
-                batch_size=args.batch_size, max_audio_length=args.max_audio_length, chunk_size=args.chunk_size
-            )
+        results, error_files = process_audio_directory(
+            args.audio_dir, model, processor, device, args.output_file, args.loss_type,
+            batch_size=args.batch_size, max_audio_length=args.max_audio_length, chunk_size=args.chunk_size
+        )
 
-            if not args.output_file:
-                print("\n处理结果:")
-                for filename, loss in results:
-                    print(f"{filename}: {loss:.4f}")
-
-    except Exception as e:
-        print(f"错误发生: {str(e)}")
-    finally:
-        if 'device' in locals() and device == 'cuda':
-            torch.cuda.empty_cache()
-        print("显存已清理")
+        if not args.output_file:
+            print("\n处理结果:")
+            for filename, loss in results:
+                print(f"{filename}: {loss:.4f}")
 
         # Restore stdout if redirected
         if original_stdout:
@@ -533,59 +510,54 @@ def process_huggingface_dataset(dataset_name, model, processor, device, output_f
     # 创建临时目录来存储音频文件
     temp_dir = tempfile.mkdtemp()
     
-    try:
-        # 分批处理数据集
-        for i in range(0, len(data_split), batch_size):
-            batch_data = data_split[i:i+batch_size]
-            print(f"处理批次 {i//batch_size + 1}/{(len(data_split) + batch_size - 1)//batch_size}")
-            
-            for idx, sample in enumerate(tqdm(batch_data, desc="处理进度")):
-                # 获取音频数据和文件名
-                if 'audio' in sample:
-                    audio_data = sample['audio']
-                    # 生成文件名，不添加_ori后缀
-                    if 'path' in sample:
-                        original_filename = os.path.basename(sample['path'])
-                        filename_without_ext = os.path.splitext(original_filename)[0]
-                        filename = f"{filename_without_ext}.wav"
-                    else:
-                        filename = f"sample_{i+idx}.wav"
-                    
-                    # 保存音频到临时文件
-                    temp_audio_path = os.path.join(temp_dir, filename)
-                    
-                    # 如果音频数据是字典格式（包含array和sampling_rate）
-                    if isinstance(audio_data, dict) and 'array' in audio_data:
-                        sf.write(temp_audio_path, audio_data['array'], audio_data['sampling_rate'])
-                    else:
-                        # 如果是其他格式，尝试直接保存
-                        print(f"警告: 音频数据格式未知，跳过样本 {filename}")
-                        continue
-                    
-                    # 处理音频文件
-                    loss = process_single_audio(temp_audio_path, model, processor, device, loss_type, max_audio_length, chunk_size)
-                    
-                    if loss is not None:
-                        results.append((filename, loss))
-                        if out_file:
-                            out_file.write(f"{filename}: {loss:.8f}\n")
-                            out_file.flush()
-                    else:
-                        error_files.append(filename)
-                    
-                    # 删除临时文件
-                    if os.path.exists(temp_audio_path):
-                        os.remove(temp_audio_path)
-            
-            # 每批处理完后清理缓存
-            if device == "cuda":
-                torch.cuda.empty_cache()
-                gc.collect()
-                print("批次处理完成，已清理显存")
-    
-    finally:
-        # 清理临时目录
-        shutil.rmtree(temp_dir)
+    # 分批处理数据集
+    for i in range(0, len(data_split), batch_size):
+        batch_data = data_split[i:i+batch_size]
+        print(f"处理批次 {i//batch_size + 1}/{(len(data_split) + batch_size - 1)//batch_size}")
+        
+        for idx, sample in enumerate(tqdm(batch_data, desc="处理进度")):
+            # 获取音频数据和文件名
+            if 'audio' in sample:
+                audio_data = sample['audio']
+                # 生成文件名，不添加_ori后缀
+                if 'path' in sample:
+                    original_filename = os.path.basename(sample['path'])
+                    filename_without_ext = os.path.splitext(original_filename)[0]
+                    filename = f"{filename_without_ext}.wav"
+                else:
+                    filename = f"sample_{i+idx}.wav"
+                
+                # 保存音频到临时文件
+                temp_audio_path = os.path.join(temp_dir, filename)
+                
+                # 如果音频数据是字典格式（包含array和sampling_rate）
+                if isinstance(audio_data, dict) and 'array' in audio_data:
+                    sf.write(temp_audio_path, audio_data['array'], audio_data['sampling_rate'])
+                else:
+                    # 如果是其他格式，尝试直接保存
+                    print(f"警告: 音频数据格式未知，跳过样本 {filename}")
+                    continue
+                
+                # 处理音频文件
+                loss = process_single_audio(temp_audio_path, model, processor, device, loss_type, max_audio_length, chunk_size)
+                
+                if loss is not None:
+                    results.append((filename, loss))
+                    if out_file:
+                        out_file.write(f"{filename}: {loss:.8f}\n")
+                        out_file.flush()
+                else:
+                    error_files.append(filename)
+                
+                # 删除临时文件
+                if os.path.exists(temp_audio_path):
+                    os.remove(temp_audio_path)
+        
+        # 每批处理完后清理缓存
+        if device == "cuda":
+            torch.cuda.empty_cache()
+            gc.collect()
+            print("批次处理完成，已清理显存")
         
         # 关闭输出文件
         if out_file:
