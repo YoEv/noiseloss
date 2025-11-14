@@ -21,7 +21,6 @@ class MidiModifier:
         self.processed_files = 0
 
     def _save_error(self, fname, error, action):
-        """增强错误记录方法"""
         error_entry = {
             "timestamp": datetime.now().isoformat(),
             "file": fname,
@@ -118,7 +117,7 @@ class MidiModifier:
             (abs(new_pitch - original_pitch) % 12 == 0)
 
     def modify_single_note(self, midi_path, output_path):
-        self.current_process = f"单音修改处理中: {os.path.basename(midi_path)}"
+        self.current_process = f"Single note modification: {os.path.basename(midi_path)}"
         try:
             orig_midi = PrettyMIDI(midi_path)
             mod_midi = self._deep_clone_midi(orig_midi)
@@ -137,11 +136,11 @@ class MidiModifier:
                 if len(last_notes) >= 3:
                     selected_chord = last_notes
                 else:
-                    self._save_error(os.path.basename(midi_path), "最终补偿失败", 'single_note')
+                    self._save_error(os.path.basename(midi_path), "Final fallback failed", 'single_note')
                     return False
 
             if not orig_midi.instruments:
-                self._save_error(os.path.basename(midi_path), "找不到乐器轨道", 'single_note')
+                self._save_error(os.path.basename(midi_path), "No instrument tracks found", 'single_note')
                 return False
 
             chord_root = min(n.pitch for n in selected_chord) % 12
@@ -159,7 +158,7 @@ class MidiModifier:
             if valid_modified:
                 for note in mod_midi.instruments[0].notes:
                     if not (0 <= note.pitch <= 127):
-                        raise ValueError(f"非法音高值: {note.pitch}")
+                        raise ValueError(f"Invalid pitch value: {note.pitch}")
 
                 mod_midi.write(output_path)
 
@@ -172,29 +171,28 @@ class MidiModifier:
                     'status': 'success'
                 })
                 return True
-            self._save_error(os.path.basename(midi_path), "60次尝试后未找到有效音高", 'single_note')
+            self._save_error(os.path.basename(midi_path), "No valid pitch found after 60 attempts", 'single_note')
             return False
         except Exception as e:
             self._save_error(os.path.basename(midi_path), e, 'single_note')
-            print(f"❌ {os.path.basename(midi_path)} 单音修改失败: {str(e)}")
+            print(f"❌ {os.path.basename(midi_path)} single note modification failed: {str(e)}")
             return False
 
     def modify_voicing(self, midi_path, output_path):
-        """和弦排列修改方法（新增详细进度提示）"""
-        self.current_process = f"和弦排列处理中: {os.path.basename(midi_path)}"
+        self.current_process = f"Voicing modification: {os.path.basename(midi_path)}"
         try:
             orig_midi = PrettyMIDI(midi_path)
             mod_midi = self._deep_clone_midi(orig_midi)
             chords = self._cluster_chords(mod_midi)
 
             if not chords:
-                self._save_error(os.path.basename(midi_path), "未检测到有效和弦", 'voicing')
+                self._save_error(os.path.basename(midi_path), "No valid chords detected", 'voicing')
                 return False
 
             selected_chord = random.choice(chords)
             chord_notes = sorted(selected_chord, key=lambda x: x.pitch)
             if len(chord_notes) < 3:
-                self._save_error(os.path.basename(midi_path), "和弦音数量不足3个", 'voicing')
+                self._save_error(os.path.basename(midi_path), "Not enough chord notes (min 3)", 'voicing')
                 return False
 
             original_pitches = [n.pitch for n in chord_notes]
@@ -212,7 +210,7 @@ class MidiModifier:
 
             for note in mod_midi.instruments[0].notes:
                 if not (0 <= note.pitch <= 127):
-                    raise ValueError(f"非法音高值: {note.pitch}")
+                    raise ValueError(f"Invalid pitch value: {note.pitch}")
 
             mod_midi.write(output_path)
             self.log.append({
@@ -226,11 +224,10 @@ class MidiModifier:
             return True
         except Exception as e:
             self._save_error(os.path.basename(midi_path), e, 'voicing')
-            print(f"❌ {os.path.basename(midi_path)} 和弦排列失败: {str(e)}")
+            print(f"❌ {os.path.basename(midi_path)} voicing modification failed: {str(e)}")
             return False
 
     def _save_logs(self, output_dir):
-        """增强日志保存方法"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_data = {
             'process_info': {
@@ -238,9 +235,9 @@ class MidiModifier:
                 'total_files': len(self.log) + len(self.error_log),
                 'success_rate': f"{len(self.log)/(len(self.log)+len(self.error_log)):.1%}",
                 'error_details': {
-                    'no_instruments': sum(1 for e in self.error_log if "找不到乐器轨道" in e['error']),
-                    'no_chords': sum(1 for e in self.error_log if "未检测到有效和弦" in e['error']),
-                    'invalid_pitch': sum(1 for e in self.error_log if "非法音高值" in e['error'])
+                    'no_instruments': sum(1 for e in self.error_log if "No instrument tracks found" in e['error']),
+                    'no_chords': sum(1 for e in self.error_log if "No valid chords detected" in e['error']),
+                    'invalid_pitch': sum(1 for e in self.error_log if "Invalid pitch value" in e['error'])
                 }
             },
             'modifications': self.log,
@@ -254,7 +251,6 @@ class MidiModifier:
             json.dump(self.error_log, f, ensure_ascii=False, indent=2)
 
     def process_directory(self, input_dir, output_dir):
-        """目录处理方法（新增进度管理）"""
         os.makedirs(output_dir, exist_ok=True)
         midi_files = [f for f in os.listdir(input_dir) if f.endswith('.mid')]
         success = 0
@@ -289,8 +285,8 @@ class MidiModifier:
                 pbar.set_postfix(file=fname[:15], success=success, errors=len(self.error_log))
 
         print(f"\nSuccess: {success}/{total} | Errors: {len(self.error_log)}")
-        print(f"\n✅ 成功修改 {success}/{total_attempts} 个文件")
-        print(f"⚠️ 失败操作: {len(self.error_log)} 个")
+        print(f"\n✅ Successfully modified {success}/{total_attempts} files")
+        print(f"⚠️ Failed operations: {len(self.error_log)}")
         self._save_logs(output_dir)
         return self.log
 

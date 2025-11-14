@@ -12,7 +12,6 @@ import random
 import itertools
 
 def parse_arguments():
-    """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Shuffle audio tokens at specific positions between 5-14 seconds.')
     parser.add_argument('--input_dir', type=str, default='/home/evev/asap-dataset/ShutterStock_32k_ori',
                         help='Directory containing input music files')
@@ -36,7 +35,6 @@ def parse_arguments():
     return parser.parse_args()
 
 def get_audio_duration(file_path):
-    """Get the duration of an audio file using ffprobe"""
     cmd = [
         'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
         '-of', 'default=noprint_wrappers=1:nokey=1', file_path
@@ -48,19 +46,13 @@ def get_audio_duration(file_path):
     return float(result.stdout.strip())
 
 def convert_time_to_token_position(time_seconds, tokens_per_second=50.0):
-    """Convert time in seconds to token position
-    
-    With 50 tokens per second, each token represents 0.02 seconds
-    """
     token_position = int(time_seconds * tokens_per_second)
     return token_position
 
 def convert_token_to_time(token_position, tokens_per_second=50.0):
-    """Convert token position to time in seconds"""
     return token_position / tokens_per_second
 
 def extract_audio_segment(input_file, start_time, end_time, output_file):
-    """Extract a segment of audio using ffmpeg"""
     duration = end_time - start_time
     cmd = [
         'ffmpeg', '-y', '-ss', str(start_time),
@@ -72,23 +64,11 @@ def extract_audio_segment(input_file, start_time, end_time, output_file):
     return result.returncode == 0
 
 def shuffle_audio_tokens(input_file, output_file, shuffle_start_time, token_length, tokens_per_second=50.0):
-    """Shuffle audio tokens by swapping two adjacent blocks
-    
-    Args:
-        input_file: Input audio file path
-        output_file: Output audio file path  
-        shuffle_start_time: Time in seconds where shuffling starts (e.g., 5.0)
-        token_length: Number of tokens to swap (e.g., 5, 10, 50, etc.)
-        tokens_per_second: Number of tokens per second (default: 50.0)
-    """
     
     # Calculate token positions
-    # At 5 seconds, we're at token 250 (5 * 50 = 250)
     start_token = convert_time_to_token_position(shuffle_start_time, tokens_per_second)
     
     # Define the two blocks to swap
-    # For token_length=5: swap tokens 250-254 with tokens 255-259
-    # For token_length=10: swap tokens 250-259 with tokens 260-269
     block1_start = start_token
     block1_end = start_token + token_length
     block2_start = start_token + token_length  
@@ -159,17 +139,6 @@ def shuffle_audio_tokens(input_file, output_file, shuffle_start_time, token_leng
 
 def shuffle_double_tokens(input_file, output_file, shuffle_start_time, shuffle_end_time, 
                          token_length1, token_length2, tokens_per_second=50.0):
-    """Shuffle audio with two different token lengths in random positions within time range
-    
-    Args:
-        input_file: Input audio file path
-        output_file: Output audio file path  
-        shuffle_start_time: Start time for shuffling range (e.g., 5.0)
-        shuffle_end_time: End time for shuffling range (e.g., 14.0)
-        token_length1: First token length to shuffle
-        token_length2: Second token length to shuffle
-        tokens_per_second: Number of tokens per second (default: 50.0)
-    """
     
     # Calculate available time range for shuffling
     available_time = shuffle_end_time - shuffle_start_time
@@ -260,16 +229,6 @@ def shuffle_double_tokens(input_file, output_file, shuffle_start_time, shuffle_e
 
 def shuffle_continuous_token_pairs(input_file, output_file, shuffle_start_time, shuffle_end_time, 
                                  token_length, tokens_per_second=50.0):
-    """Shuffle audio by continuously swapping adjacent token pairs of the same length
-    
-    Args:
-        input_file: Input audio file path
-        output_file: Output audio file path  
-        shuffle_start_time: Start time for shuffling range (e.g., 5.0)
-        shuffle_end_time: End time for shuffling range (e.g., 14.0)
-        token_length: Length of each token block to swap
-        tokens_per_second: Number of tokens per second (default: 50.0)
-    """
     
     # Calculate available time range for shuffling
     available_time = shuffle_end_time - shuffle_start_time
@@ -371,7 +330,6 @@ def shuffle_continuous_token_pairs(input_file, output_file, shuffle_start_time, 
 
 def process_file(input_file, output_dir, shuffle_start_time, shuffle_end_time, 
                 token_lengths, tokens_per_second, double_shuffle=False):
-    """Process a single audio file with token shuffling"""
     
     base_name = os.path.splitext(os.path.basename(input_file))[0]
     print(f"Processing: {base_name}")
@@ -405,7 +363,6 @@ def process_file(input_file, output_dir, shuffle_start_time, shuffle_end_time,
                 print(f"    Failed to create {output_file}")
 
 def main():
-    """Main function"""
     args = parse_arguments()
     
     # Validate arguments

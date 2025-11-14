@@ -8,8 +8,8 @@ from datetime import datetime
 class PitchProcessor:
     def __init__(self, config_path):
         self.config = self._load_config(config_path)
-        self.safe_pitch_range = (24, 103)  # 安全音高范围
-        self.max_attempts = 100  # 最大尝试次数
+        self.safe_pitch_range = (24, 103)
+        self.max_attempts = 100
         self.err_log = []
         self.success_log = []
         self.output_dir = None
@@ -35,7 +35,6 @@ class PitchProcessor:
     # Removed _find_main_track method
 
     def _get_modifiable_notes(self, midi, percentage, selection_type="random"):
-        # Process all tracks instead of just the main track
         all_notes = []
         for instrument in midi.instruments:
             all_notes.extend([n for n in instrument.notes
@@ -47,11 +46,11 @@ class PitchProcessor:
 
         if selection_type == "random":
             return random.sample(all_notes, mod_count)
-        else:  # sequential或其他选择类型
+        else:
             return all_notes[:mod_count]
 
     def _validate_pitch_change(self, original_pitch, new_pitch, key_signature):
-        diatonic_scale = [0,2,4,5,7,9,11]  # 自然音阶
+        diatonic_scale = [0,2,4,5,7,9,11]
         key = key_signature.key_number % 12 if key_signature else 0
         scale_degrees = [(key + offset) % 12 for offset in diatonic_scale]
         return (new_pitch % 12) in scale_degrees
@@ -68,21 +67,17 @@ class PitchProcessor:
         return midi
 
     def _process_action(self, midi, action):
-        """处理单个action（包含多个steps）"""
         action_name = action['name']
 
-        # 修改点2：处理steps层级
         for step in action['steps']:
             self._process_step(midi, action_name, step)
 
     def _process_step(self, midi, action_name, step):
-        """处理单个step（包含多个modifications）"""
         operation = step['operation']
         selection_type = step['selection_type']
         parameters = step['parameters']
         shifts = parameters['shifts']
 
-        # 修改点3：处理modifications层级
         for mod_config in parameters['modifications']:
             mod_midi = copy.deepcopy(midi)
             percentage = mod_config['percentage']
@@ -138,7 +133,6 @@ class PitchProcessor:
                 self.err_log.append(result)
 
     # def _save_logs(self, output_dir):
-    #     """保存日志文件"""
     #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     #     log_data = {
     #         'timestamp': timestamp,

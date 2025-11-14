@@ -1,4 +1,3 @@
-# processors/rhythm_processor.py
 import os
 import random
 import copy
@@ -9,11 +8,6 @@ from datetime import datetime
 
 class RhythmProcessor:
     def __init__(self, config_path):
-        """
-        Args:
-            config_path: 配置文件路径
-            output_dir: 处理器专用输出目录 (由ExperimentRunner创建并传入)
-        """
         self.config = self._load_config(config_path)
         self.min_note = 0.25
         self.min_note_conversion = 0.25
@@ -62,7 +56,6 @@ class RhythmProcessor:
             if abs((note.end - note.start) - source_dur) <= self.min_note:
                 note.end = note.start + target_dur
                 modified += 1
-                # 确保修改后的音符保留instrument信息
                 if not hasattr(note, 'instrument'):
                     note.instrument = None
         return notes
@@ -99,10 +92,10 @@ class RhythmProcessor:
         elif op == 'note_deletion':
             self._process_note_deletion(midi, sel_type, params)
         else:
-            raise ValueError(f"未知操作类型: {op}")
+            raise ValueError(f"Unknown operation type: {op}")
 
     def _process_duration_change(self, midi, sel_type, step_config):
-        source_dur = step_config['source_durations'] #实际上检测到的音符长度为二分音符即可
+        source_dur = step_config['source_durations']
         target_dur = step_config['target_duration']
 
         results = []
@@ -116,8 +109,8 @@ class RhythmProcessor:
             try:
                 save_path = self._get_save_path(midi, suffix)
                 if count > len(all_notes):
-                    print(f"需要修改{count}个音，但只有{len(all_notes)}个符合要求的音符")
-                    raise ValueError(f"需要修改{count}个音，但只有{len(all_notes)}个符合要求的音符")
+                    print(f"Requested to modify {count} notes, but only {len(all_notes)} match criteria")
+                    raise ValueError(f"Requested to modify {count} notes, but only {len(all_notes)} match criteria")
 
                 if (sel_type == 'random') :
                     selected = random.sample(all_notes, count)
@@ -170,25 +163,21 @@ class RhythmProcessor:
 
             try:
                 save_path = self._get_save_path(midi, suffix)
-                # calculate possible note count
                 if count > len(all_candidates):
                     raise ValueError(
-                        f"需要转换{count}个音，但只有{len(all_candidates)}个符合要求的音符")
+                        f"Requested to convert {count} notes, but only {len(all_candidates)} match criteria")
 
-                # select notes
                 if sel_type == 'random':
                     selected = random.sample(all_candidates, count)
-                else:  # continuous
+                else:
                     selected = all_candidates[:count]
 
-                # rhythm conversion
                 modified = 0
                 for instr, note, src_dur in selected:
                     target_dur = conversion_map[src_dur]
                     note.end = note.start + target_dur
                     modified += 1
 
-                #print("=================Step 6.4====================")
                 mod_midi.write(save_path)
 
                 success_result = {
@@ -228,16 +217,14 @@ class RhythmProcessor:
                 save_path = self._get_save_path(midi, suffix)
                 if sel_type == 'random':
                     start_time = random.uniform(0, total_time - section_length)
-                else:  # continuous
+                else:
                     max_start = total_time - section_length
                     start_time = random.uniform(0, max_start) if max_start > 0 else 0
 
                 end_time = start_time + section_length
 
-                # all instruments!!! have to
                 modified_notes = 0
                 for instr in mod_midi.instruments:
-                    # 获取区间内的音符（带边界容错）
                     notes_in_section = [
                         n for n in instr.notes
                         if start_time - self.min_note_density <= n.start <= end_time + self.min_note_density
@@ -254,7 +241,6 @@ class RhythmProcessor:
                         for note in notes_in_section:
                             original_duration = note.end - note.start
 
-                            # divide two notes to count time
                             first_note = copy.deepcopy(note)
                             first_note.end = first_note.start + (original_duration * 0.5)
 
@@ -262,7 +248,6 @@ class RhythmProcessor:
                             second_note.start = first_note.end
                             second_note.end = note.end
 
-                            # note replace with density adjusted
                             note.start = first_note.start
                             note.end = first_note.end
                             new_notes.append(second_note)
@@ -324,7 +309,7 @@ class RhythmProcessor:
                     delete_count = int(total_notes * ratio)
                     to_delete = random.sample(all_notes, delete_count)
 
-                else:  # patterned
+                else:
                     eighth_note = step_config.get('pattern_interval', 0.125)
                     total_time = mod_midi.get_end_time()
                     section_length = total_time * ratio
@@ -343,7 +328,6 @@ class RhythmProcessor:
                         if any(abs(n.start - beat) < self.min_note_deletion for beat in pattern_beats)
                     ]
 
-                # note deletion
                 for note in reversed(to_delete):
                     note.instrument.notes.remove(note)
 

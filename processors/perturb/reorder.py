@@ -12,7 +12,6 @@ import time
 from tqdm import tqdm
 
 def parse_arguments():
-    """Parse command line arguments"""
     parser = argparse.ArgumentParser(description='Cut music into small segments and reorder them randomly with different percentages.')
     parser.add_argument('--input_dir', type=str, default='/home/evev/asap-dataset/ShutterStock_20_cut14',
                         help='Directory containing input music files')
@@ -32,7 +31,6 @@ def parse_arguments():
 # First, ensure there's only one duration function
 # At the top of the file, rename get_duration to get_audio_duration for consistency
 def get_audio_duration(file_path):
-    """Get the duration of an audio file using ffprobe"""
     cmd = [
         'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
         '-of', 'default=noprint_wrappers=1:nokey=1', file_path
@@ -44,7 +42,6 @@ def get_audio_duration(file_path):
     return float(result.stdout.strip())
 
 def cut_audio_into_variable_segments(input_file, temp_dir, min_segment_length, max_segment_length):
-    """Cut audio into segments with accurate timing and validation"""
     duration = get_audio_duration(input_file)  # Changed from get_duration to get_audio_duration
     if duration <= 0:
         print(f"Error: Invalid duration {duration} for file {input_file}")
@@ -128,7 +125,6 @@ def cut_audio_into_variable_segments(input_file, temp_dir, min_segment_length, m
     return segments
 
 def shuffle_segments_by_percentage(segments, shuffle_percentage):
-    """Shuffle segments by replacing originals at selected positions"""
     total = len(segments)
     num_shuffle = int(total * shuffle_percentage)
     
@@ -169,7 +165,6 @@ def join_segments(concat_file, output_file):
         raise ValueError(f"Duration mismatch: {new_duration:.1f}s vs original {orig_duration:.1f}s")
 
 def create_concat_file(segments, concat_file):
-    """Create a concat file for ffmpeg with validation"""
     valid_segments = []
     
     # First validate all segments
@@ -210,7 +205,6 @@ def create_concat_file(segments, concat_file):
         return False
 
 def join_segments(concat_file, output_file, original_file):
-    """Join audio segments using the concat file"""
     if not os.path.exists(concat_file):
         print(f"Error: Concat file does not exist: {concat_file}")
         return False
@@ -245,7 +239,6 @@ def join_segments(concat_file, output_file, original_file):
         return False
 
 def process_file(input_file, output_dir, min_segment_length, max_segment_length, shuffle_percentages):
-    """Process a single audio file with different shuffle percentages"""
     base_name = os.path.splitext(os.path.basename(input_file))[0]
     
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -282,7 +275,6 @@ def process_file(input_file, output_dir, min_segment_length, max_segment_length,
                 print(f"    Failed to create concat file for {percentage_str}")
 
 def main():
-    """Main function"""
     args = parse_arguments()
     
     # Validate arguments
