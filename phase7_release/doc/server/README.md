@@ -145,6 +145,39 @@ pip install soundfile librosa tqdm pandas pyyaml
 
 ### 4.1 SAE（必须，一次性）
 
+#### 4.1.0 预备：解决 PyAV (`av==11.0.0`) 源码编译失败
+
+`musicdiscovery` 的依赖中包含 `audiocraft==1.3.0`，后者 pin 了 `av==11.0.0`。当 pip 在目标机器上找不到匹配的 PyAV wheel（比如服务器 glibc / Python / pip 组合较新或较旧）时，会回退到源码编译，这时就会出现：
+
+```text
+Package 'libavformat', required by 'virtual:world', not found
+Package 'libavcodec', required by 'virtual:world', not found
+...
+ERROR: Failed to build 'av' when getting requirements to build wheel
+```
+
+原因：机器没有 FFmpeg 的 dev 头文件 / `pkg-config`。在跑 §4.1.1 之前，**二选一**先执行下面的命令，把这个问题消掉：
+
+**Option A（推荐）：通过 conda-forge 装 FFmpeg dev 头 + pkg-config**
+
+> 原因：把 `libav*` 头文件和 `pkg-config` 直接装进 `torch21` env，PyAV 走正常源码编译也能成功，对后续调用 ffmpeg 的脚本（aesthetics、切片、重采样等）同样有用。
+
+```bash
+conda install -n torch21 -c conda-forge -y 'ffmpeg=6.*' pkg-config
+```
+
+**Option B：强制使用 PyAV 预编译 wheel，跳过源码编译**
+
+> 原因：不动系统也不装 FFmpeg dev，只要 PyPI 上有对应 Python/平台的 `av==11.0.0` wheel 就能直接用。缺点：如果后续其他包也要 `libav*`，还得补装 ffmpeg。
+
+```bash
+conda run -n torch21 python -m pip install --only-binary=:all: av==11.0.0
+```
+
+执行完 Option A 或 Option B 之后，再跑 §4.1.1 的主安装脚本，即可绕过 `av` 编译阶段。
+
+#### 4.1.1 安装 musicdiscovery + 下载 SAE checkpoint
+
 ```bash
 cd /home/evev/noiseloss
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
