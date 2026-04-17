@@ -1,0 +1,112 @@
+# =============================================================================
+# server-deploy branch — only code, configs, and docs are tracked.
+# Every generated/downloadable artifact is excluded so the branch stays tiny
+# and safe to (re)clone on any GPU server.
+# =============================================================================
+
+# --- Generated / regenerable directories ------------------------------------
+phase7_release/outputs/
+phase7_release/features/
+phase7_release/raw_hf/
+phase7_release/datasets/
+phase7_release/data/splits/
+phase7_release/data/full_splits/
+phase7_release/data/manifests/
+
+# --- Tabular / serialized data files ----------------------------------------
+*.csv
+*.tsv
+*.parquet
+*.feather
+*.arrow
+*.jsonl
+*.json
+
+# --- Audio -------------------------------------------------------------------
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.opus
+
+# --- Video -------------------------------------------------------------------
+*.mp4
+*.webm
+*.mov
+*.mkv
+*.avi
+
+# --- Images ------------------------------------------------------------------
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.webp
+*.bmp
+*.tiff
+*.ico
+
+# --- Document binaries -------------------------------------------------------
+*.pdf
+*.pptx
+*.docx
+*.xlsx
+
+# --- Model checkpoints / tensors --------------------------------------------
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.onnx
+
+# --- Archives ----------------------------------------------------------------
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.tar.bz2
+*.tbz2
+*.7z
+*.rar
+*.gz
+*.xz
+
+# --- Logs / temporary --------------------------------------------------------
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# --- Python / tooling caches -------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# --- OS / editor -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.code-workspace
+
+# --- Env / secrets -----------------------------------------------------------
+.env
+.env.*
+!.env.example

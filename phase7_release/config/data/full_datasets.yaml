@@ -1,0 +1,92 @@
+gpu_parallel:
+  enabled: true
+  apply_to_small_scale: false
+  max_concurrent_jobs: 8
+  gpu_ids: []  # empty means auto-detect all visible GPUs
+  detection:
+    min_free_memory_mb: 60000
+    max_utilization_pct: 35
+    probe_interval_sec: 20
+
+execution:
+  include_scopes:
+    - "large_scale_single"
+    - "large_scale_merged"
+  prepare_splits: false
+  with_aesthetics: true
+  skip_feature_extract: false
+
+datasets:
+  large_scale_single:
+    - name: "musicpref"
+      enabled: true
+      splits:
+        clean:
+          train: "phase7_release/data/full_splits/musicpref/train.csv"
+          val: "phase7_release/data/full_splits/musicpref/val.csv"
+          test: "phase7_release/data/full_splits/musicpref/test.csv"
+        noisy:
+          train: "phase7_release/data/full_splits/musicpref/train_noisy.csv"
+          val: "phase7_release/data/full_splits/musicpref/val_noisy.csv"
+          test: "phase7_release/data/full_splits/musicpref/test_noisy.csv"
+
+    - name: "aime"
+      enabled: true
+      splits:
+        clean:
+          train: "phase7_release/data/full_splits/aime/train.csv"
+          val: "phase7_release/data/full_splits/aime/val.csv"
+          test: "phase7_release/data/full_splits/aime/test.csv"
+        noisy:
+          train: "phase7_release/data/full_splits/aime/train_noisy.csv"
+          val: "phase7_release/data/full_splits/aime/val_noisy.csv"
+          test: "phase7_release/data/full_splits/aime/test_noisy.csv"
+
+    - name: "songeval"
+      enabled: true
+      splits:
+        clean:
+          train: "phase7_release/data/full_splits/songeval/train.csv"
+          val: "phase7_release/data/full_splits/songeval/val.csv"
+          test: "phase7_release/data/full_splits/songeval/test.csv"
+        noisy:
+          train: "phase7_release/data/full_splits/songeval/train_noisy.csv"
+          val: "phase7_release/data/full_splits/songeval/val_noisy.csv"
+          test: "phase7_release/data/full_splits/songeval/test_noisy.csv"
+
+    - name: "musiceval"
+      enabled: false  # small-scale runner handles MusicEval separately
+      splits:
+        clean:
+          train: "phase7_release/data/full_splits/musiceval/train.csv"
+          val: "phase7_release/data/full_splits/musiceval/val.csv"
+          test: "phase7_release/data/full_splits/musiceval/test.csv"
+        noisy:
+          train: "phase7_release/data/full_splits/musiceval/train_noisy.csv"
+          val: "phase7_release/data/full_splits/musiceval/val_noisy.csv"
+          test: "phase7_release/data/full_splits/musiceval/test_noisy.csv"
+
+    - name: "music_arena"
+      enabled: true
+      splits:
+        clean:
+          train: "phase7_release/data/full_splits/music_arena/train.csv"
+          val: "phase7_release/data/full_splits/music_arena/val.csv"
+          test: "phase7_release/data/full_splits/music_arena/test.csv"
+        noisy:
+          train: "phase7_release/data/full_splits/music_arena/train_noisy.csv"
+          val: "phase7_release/data/full_splits/music_arena/val_noisy.csv"
+          test: "phase7_release/data/full_splits/music_arena/test_noisy.csv"
+
+  large_scale_merged:
+    - name: "all_5_datasets"
+      enabled: true
+      splits:
+        clean:
+          train: "phase7_release/data/full_splits/all_5_datasets/train.csv"
+          val: "phase7_release/data/full_splits/all_5_datasets/val.csv"
+          test: "phase7_release/data/full_splits/all_5_datasets/test.csv"
+        noisy:
+          train: "phase7_release/data/full_splits/all_5_datasets/train_noisy.csv"
+          val: "phase7_release/data/full_splits/all_5_datasets/val_noisy.csv"
+          test: "phase7_release/data/full_splits/all_5_datasets/test_noisy.csv"

@@ -1,0 +1,93 @@
+project_root: "/home/evev/noiseloss"
+
+data:
+  splits:
+    clean:
+      train: "phase7_release/data/splits/musiceval/train.csv"
+      val: "phase7_release/data/splits/musiceval/val.csv"
+      test: "phase7_release/data/splits/musiceval/test.csv"
+    noisy:
+      train: "phase7_release/data/splits/musiceval/train_noisy.csv"
+      val: "phase7_release/data/splits/musiceval/val_noisy.csv"
+      test: "phase7_release/data/splits/musiceval/test_noisy.csv"
+  feature_roots:
+    token_loss_root: "phase7_release/features/token_loss"
+    sae_feature_root: "phase7_release/features/sae"
+  preprocess:
+    musiceval_source_split_root: "experiments/phase7/loss_eval_experiments/exp11_large_scale_replication/1_data_preparation"
+    full_scale_pairwise_out_root: "phase7_release/data/manifests/pairwise_scaled"
+  full_scale:
+    dataset_config: "phase7_release/config/data/full_datasets.yaml"
+
+outputs:
+  root: "phase7_release/outputs"
+  checkpoints: "phase7_release/outputs/checkpoints"
+  logs: "phase7_release/outputs/logs"
+  plots: "phase7_release/outputs/plots"
+  reports: "phase7_release/outputs/reports"
+  features_loss: "phase7_release/outputs/features/loss"
+
+seq_len: 1500
+sae_hidden_dim: 16384
+
+sae:
+  backend: "musicdiscovery"
+  musicdiscovery_checkpoint_dir: "external/musicdiscovery_checkpoints/sae-4_k_32_layer_12/facebook/musicgen-small"
+  output_dir: "phase7_release/features/sae/musiceval"
+
+training:
+  defaults:
+    loss_curve_cnn:
+      epochs: 100
+      batch_size: 64
+      lr: 0.0001
+      weight_decay: 0.0001
+      patience: 10
+      lr_decay_factor: 0.5
+      lr_decay_patience: 3
+      min_lr: 1.0e-6
+    entropy_curve_cnn:
+      epochs: 100
+      batch_size: 64
+      lr: 0.0001
+      weight_decay: 0.0001
+      patience: 10
+      lr_decay_factor: 0.5
+      lr_decay_patience: 3
+      min_lr: 1.0e-6
+    curve_transformer:
+      epochs: 100
+      batch_size: 32
+      lr: 0.0001
+      weight_decay: 0.0001
+      patience: 10
+      lr_decay_factor: 0.5
+      lr_decay_patience: 3
+      min_lr: 1.0e-6
+    hybrid_cnn:
+      epochs: 50
+      batch_size: 8
+      lr: 0.0001
+      weight_decay: 0.0001
+      patience: 8
+      lr_decay_factor: 0.5
+      lr_decay_patience: 3
+      min_lr: 1.0e-6
+    hybrid_transformer_pool:
+      epochs: 50
+      batch_size: 8
+      lr: 0.00005
+      weight_decay: 0.0001
+      patience: 10
+      lr_decay_factor: 0.5
+      lr_decay_patience: 3
+      min_lr: 1.0e-6
+    hybrid_transformer:
+      epochs: 50
+      batch_size: 8
+      lr: 0.0001
+      weight_decay: 0.0001
+      patience: 10
+      lr_decay_factor: 0.5
+      lr_decay_patience: 3
+      min_lr: 1.0e-6

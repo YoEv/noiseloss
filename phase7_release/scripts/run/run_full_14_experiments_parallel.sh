@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-/home/evev/noiseloss}"
+TORCH_ENV="${TORCH_ENV:-torch21}"
+MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-musicdiscovery310}"
+AUDIOBOX_ENV="${AUDIOBOX_ENV:-audiobox}"
+SPLITS="${SPLITS:-clean}"
+
+cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
+
+echo "[launch] starting full parallel runner in env=${TORCH_ENV}, splits=${SPLITS}"
+conda run --no-capture-output -n "${TORCH_ENV}" python "phase7_release/scripts/run/run_full_14_experiments_parallel.py" \
+  --project-root "${PROJECT_ROOT}" \
+  --torch-env "${TORCH_ENV}" \
+  --musicdiscovery-env "${MUSICDISCOVERY_ENV}" \
+  --audiobox-env "${AUDIOBOX_ENV}" \
+  --splits "${SPLITS}" \
+  "$@"

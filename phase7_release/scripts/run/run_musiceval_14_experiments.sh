@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="${PROJECT_ROOT:-/home/evev/noiseloss}"
+TORCH_ENV="${TORCH_ENV:-torch21}"
+MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-musicdiscovery310}"
+AUDIOBOX_ENV="${AUDIOBOX_ENV:-audiobox}"
+SPLITS="${SPLITS:-clean}"
+DATASET="${DATASET:-musiceval}"
+SKIP_TRANSFORMER="${SKIP_TRANSFORMER:-0}"
+SKIP_SAE="${SKIP_SAE:-0}"
+
+cd "${PROJECT_ROOT}"
+export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
+
+echo "[launch] starting musiceval14 runner in env=${TORCH_ENV}, dataset=${DATASET}, splits=${SPLITS}"
+EXTRA_ARGS=()
+if [[ "${SKIP_TRANSFORMER}" == "1" ]]; then
+  EXTRA_ARGS+=(--skip-transformer)
+fi
+if [[ "${SKIP_SAE}" == "1" ]]; then
+  EXTRA_ARGS+=(--skip-sae)
+fi
+conda run --no-capture-output -n "${TORCH_ENV}" python "phase7_release/scripts/run/run_musiceval_14_experiments.py" \
+  --project-root "${PROJECT_ROOT}" \
+  --torch-env "${TORCH_ENV}" \
+  --musicdiscovery-env "${MUSICDISCOVERY_ENV}" \
+  --audiobox-env "${AUDIOBOX_ENV}" \
+  --dataset "${DATASET}" \
+  --splits "${SPLITS}" \
+  "${EXTRA_ARGS[@]}" \
+  "$@"
