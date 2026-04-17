@@ -18,7 +18,8 @@ def main():
     parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
     args = parser.parse_args()
 
-    repo_root = "/home/evev/noiseloss"
+    from phase7_release.lib.repro.data_paths import detect_project_root
+    repo_root = detect_project_root()
     aesthetics_src = os.path.join(repo_root, "external", "audiobox-aesthetics", "src")
     sys.path.insert(0, aesthetics_src)
     from audiobox_aesthetics.infer import AesPredictor

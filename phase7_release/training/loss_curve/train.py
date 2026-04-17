@@ -8,7 +8,7 @@ import yaml
 from scipy.stats import pearsonr
 from torch.utils.data import DataLoader
 
-from phase7_release.lib.repro.data_paths import get_exp11_split_paths
+from phase7_release.lib.repro.data_paths import get_exp11_split_paths, resolve_project_root
 from phase7_release.lib.repro.loss_dataset import LossCurveDataset, loss_curve_collate_fn
 from phase7_release.lib.repro.nets import LossCurveCNN
 
@@ -81,7 +81,7 @@ def main():
     min_lr = float(args.min_lr if args.min_lr is not None else tcfg.get("min_lr", 1e-6))
 
     out_cfg = cfg.get("outputs", {})
-    project_root = cfg.get("project_root", "/home/evev/noiseloss")
+    project_root = resolve_project_root(cfg)
     ckpt_dir = out_cfg.get("checkpoints", "phase7_release/outputs/checkpoints")
     ckpt_dir = ckpt_dir if os.path.isabs(ckpt_dir) else os.path.join(project_root, ckpt_dir)
     os.makedirs(ckpt_dir, exist_ok=True)

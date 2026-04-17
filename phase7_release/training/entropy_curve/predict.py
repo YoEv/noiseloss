@@ -5,7 +5,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from phase7_release.lib.repro.data_paths import get_exp11_split_paths
+from phase7_release.lib.repro.data_paths import get_exp11_split_paths, resolve_project_root
 from phase7_release.lib.repro.entropy_dataset import EntropyCurveDataset, entropy_curve_collate_fn
 from phase7_release.lib.repro.nets import LossCurveCNN
 
@@ -25,7 +25,7 @@ def main():
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     out_cfg = cfg.get("outputs", {})
-    project_root = cfg.get("project_root", "/home/evev/noiseloss")
+    project_root = resolve_project_root(cfg)
 
     paths = get_exp11_split_paths(args.config, splits=args.splits)
     test_ds = EntropyCurveDataset(paths["test"], max_len=MAX_LEN, entropy_manifest_csv=args.entropy_manifest_csv)

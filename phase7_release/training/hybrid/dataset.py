@@ -38,27 +38,30 @@ def _build_entropy_map(manifest_paths: Optional[List[str]]) -> Tuple[Dict[str, s
 
 
 class HybridPrecomputedDataset(Dataset):
+    """Self-contained dataset for hybrid (curve + SAE) training.
+
+    All data is resolved via ``split_csv_path`` + ``sae_feature_dir`` + ``token_loss_root``
+    (all relative paths are joined against ``data_root``). This class does not reference
+    any legacy exp10 / exp11 directory.
+    """
+
     def __init__(
         self,
         split,
-        exp11_root,
-        exp10_root,
         data_root,
+        *,
+        split_csv_path,
+        sae_feature_dir,
+        token_loss_root,
         seq_len=1500,
         sae_dim=16384,
         sae_variant_suffix="",
-        use_noisy_splits=False,
         curve_mode="loss",
         entropy_manifest_csv=None,
-        split_csv_path=None,
-        sae_feature_dir=None,
-        token_loss_root=None,
     ):
         self.seq_len = seq_len
         self.sae_dim = sae_dim
-        self.exp11_root = os.path.join(data_root, exp11_root) if exp11_root else ""
-        self.exp10_root = os.path.join(data_root, exp10_root) if exp10_root else ""
-        self.token_loss_root = token_loss_root or self.exp10_root
+        self.token_loss_root = token_loss_root
         if self.token_loss_root and (not os.path.isabs(self.token_loss_root)):
             self.token_loss_root = os.path.join(data_root, self.token_loss_root)
         self.curve_mode = curve_mode
@@ -79,21 +82,14 @@ class HybridPrecomputedDataset(Dataset):
         self.entropy_map, self.entropy_map_by_audio = _build_entropy_map(entropy_paths)
         if self.curve_mode in {"entropy", "loss_entropy"} and (not self.entropy_map and not self.entropy_map_by_audio):
             raise ValueError("entropy/loss_entropy mode requires entropy manifests")
-        if split_csv_path:
-            csv_path = split_csv_path
-        else:
-            csv_name = f"{split}_noisy.csv" if use_noisy_splits else f"{split}.csv"
-            csv_path = os.path.join(self.exp11_root, "1_data_preparation", csv_name)
-        if not os.path.isabs(csv_path):
-            csv_path = os.path.join(data_root, csv_path)
+        if not split_csv_path:
+            raise ValueError("split_csv_path is required")
+        csv_path = split_csv_path if os.path.isabs(split_csv_path) else os.path.join(data_root, split_csv_path)
         self.df = pd.read_csv(csv_path)
 
-        if sae_feature_dir:
-            base_feat_dir = sae_feature_dir
-        else:
-            base_feat_dir = os.path.join(self.exp11_root, "3_feature_extraction")
-        if not os.path.isabs(base_feat_dir):
-            base_feat_dir = os.path.join(data_root, base_feat_dir)
+        if not sae_feature_dir:
+            raise ValueError("sae_feature_dir is required")
+        base_feat_dir = sae_feature_dir if os.path.isabs(sae_feature_dir) else os.path.join(data_root, sae_feature_dir)
         npy_path = os.path.join(base_feat_dir, f"sae_features_{split}{sae_variant_suffix}.npy")
         meta_path = os.path.join(base_feat_dir, f"sae_features_{split}{sae_variant_suffix}_meta.pt")
         if not os.path.isfile(npy_path) or not os.path.isfile(meta_path):

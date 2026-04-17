@@ -10,7 +10,7 @@ import pandas as pd
 import yaml
 
 from phase7_release.lib.repro.curve_channels import read_entropy_codebook_curves, read_loss_codebook_curves
-from phase7_release.lib.repro.data_paths import get_exp11_split_paths
+from phase7_release.lib.repro.data_paths import get_exp11_split_paths, resolve_project_root
 from phase7_release.lib.repro.metrics import safe_pearson_spearman
 
 STATE_COLS = [
@@ -127,7 +127,7 @@ def main() -> None:
 
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    project_root = cfg.get("project_root", "/home/evev/noiseloss")
+    project_root = resolve_project_root(cfg)
     split_paths = get_exp11_split_paths(args.config, splits=args.splits)
     test_df = pd.read_csv(split_paths["test"])
 

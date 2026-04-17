@@ -16,10 +16,10 @@ from tqdm import tqdm
 
 from phase7_release.lib.repro.nets import CNN1DReduceThenTransformer
 from phase7_release.training.hybrid.dataset import HybridPrecomputedDataset
-from phase7_release.lib.repro.data_paths import get_exp11_split_paths
+from phase7_release.lib.repro.data_paths import detect_project_root, get_exp11_split_paths
 
 matplotlib.use("Agg")
-DATA_ROOT = "/home/evev/noiseloss"
+DATA_ROOT = detect_project_root()
 SHM_SAFETY_RATIO = 0.9
 
 
@@ -201,51 +201,23 @@ def main():
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(report_dir, exist_ok=True)
 
-    train_ds = HybridPrecomputedDataset(
-        "train",
-        "",
-        "",
-        DATA_ROOT,
-        seq_len=seq_len,
-        sae_dim=sae_dim,
-        sae_variant_suffix=args.sae_suffix,
-        use_noisy_splits=args.use_noisy_splits,
-        curve_mode=args.curve_mode,
-        entropy_manifest_csv=args.entropy_manifest_csv,
-        split_csv_path=split_paths["train"],
-        sae_feature_dir=sae_feature_dir,
-        token_loss_root=token_loss_root,
-    )
-    val_ds = HybridPrecomputedDataset(
-        "val",
-        "",
-        "",
-        DATA_ROOT,
-        seq_len=seq_len,
-        sae_dim=sae_dim,
-        sae_variant_suffix=args.sae_suffix,
-        use_noisy_splits=args.use_noisy_splits,
-        curve_mode=args.curve_mode,
-        entropy_manifest_csv=args.entropy_manifest_csv,
-        split_csv_path=split_paths["val"],
-        sae_feature_dir=sae_feature_dir,
-        token_loss_root=token_loss_root,
-    )
-    test_ds = HybridPrecomputedDataset(
-        "test",
-        "",
-        "",
-        DATA_ROOT,
-        seq_len=seq_len,
-        sae_dim=sae_dim,
-        sae_variant_suffix=args.sae_suffix,
-        use_noisy_splits=args.use_noisy_splits,
-        curve_mode=args.curve_mode,
-        entropy_manifest_csv=args.entropy_manifest_csv,
-        split_csv_path=split_paths["test"],
-        sae_feature_dir=sae_feature_dir,
-        token_loss_root=token_loss_root,
-    )
+    def _make_ds(split_name, csv_path):
+        return HybridPrecomputedDataset(
+            split_name,
+            DATA_ROOT,
+            split_csv_path=csv_path,
+            sae_feature_dir=sae_feature_dir,
+            token_loss_root=token_loss_root,
+            seq_len=seq_len,
+            sae_dim=sae_dim,
+            sae_variant_suffix=args.sae_suffix,
+            curve_mode=args.curve_mode,
+            entropy_manifest_csv=args.entropy_manifest_csv,
+        )
+
+    train_ds = _make_ds("train", split_paths["train"])
+    val_ds = _make_ds("val", split_paths["val"])
+    test_ds = _make_ds("test", split_paths["test"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True

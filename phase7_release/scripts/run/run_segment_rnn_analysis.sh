@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/evev/noiseloss}"
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${_SCRIPT_DIR}/../../.." && pwd)}"
 TORCH_ENV="${TORCH_ENV:-torch21}"
 RELEASE_CFG="${PROJECT_ROOT}/phase7_release/config/paths.yaml"
 OUT_DIR="phase7_release/outputs/reports/segment_curves"

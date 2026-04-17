@@ -17,7 +17,40 @@
 >
 > 每一次执行要按 `--splits clean` 与 `--splits noisy` 各跑一遍，得到两套 label 版本。
 
-所有命令默认的项目根目录是 `/home/evev/noiseloss`。如果服务器路径不同，请在每条命令前显式 `export PROJECT_ROOT=<your_path>`。
+---
+
+## 0.1 项目根路径解析机制
+
+`phase7_release` 下所有 shell / Python / YAML 都会按下面的优先级解析项目根：
+
+1. **CLI 参数**：`--project-root <path>`（最高）
+2. **环境变量**：`export PROJECT_ROOT=<path>`
+3. **自动探测**：shell 由脚本位置 `$(dirname $0)/../../..` 推导；Python 由 `__file__` 向上寻找 `phase7_release/` 的父目录
+
+也就是说**不需要改任何代码和配置**——只要仓库放在 server 上的任意位置，直接跑脚本就行。下面两种典型用法任选其一：
+
+### 场景 A：默认行为（不设置任何环境变量）
+
+```bash
+cd /home/cliu/wk/noiseloss
+bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
+# → 自动检测到 /home/cliu/wk/noiseloss 作为项目根
+```
+
+### 场景 B：显式覆盖（不同路径、多实例共存等）
+
+```bash
+export PROJECT_ROOT=/any/other/path
+bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
+# → 项目根强制使用 /any/other/path
+```
+
+如果想固化一次，把下面这行加到 `~/.bashrc`：
+
+```bash
+echo 'export PROJECT_ROOT=/home/cliu/wk/noiseloss' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ---
 
@@ -179,7 +212,7 @@ conda run -n torch21 python -m pip install --only-binary=:all: av==11.0.0
 #### 4.1.1 安装 musicdiscovery + 下载 SAE checkpoint
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
 ```
 
@@ -248,7 +281,7 @@ pip install datasets==2.21.0 huggingface_hub
 ### 5.2 HF 原始快照（层 1）
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 
 # 如需访问 gated 仓库
 huggingface-cli login
@@ -348,7 +381,7 @@ unzip phase7_release/raw_hf/MusicEval/MusicEval-full.zip \
 用 `fit_pairwise_manifests.py` 产 1–5 分（ReLU hinge；与 `preprocess_data.py` 里的 BT/MSE 对应）：
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 
 # MusicPref：两个 head（musicality / fidelity），产两份 1-5 分
 conda run -n torch21 python phase7_release/scripts/data/fit_pairwise_manifests.py \
@@ -539,21 +572,41 @@ PY
 
 ### 5.9 MusicEval 小规模的音频路径（特别说明）
 
-`phase7_release/data/splits/musiceval/*.csv` 的 `audio_path` 与 `token_loss_path` 是**绝对路径**（`/home/evev/noiseloss/...`）。两种处理方案：
+`phase7_release/data/splits/musiceval/*.csv` 的 `audio_path` 与 `token_loss_path` 是 **dev 机器上生成的绝对路径**（例如 `/home/<dev_user>/<dev_project>/datasets/...`）。所以直接拷到 server 后路径**不能命中**。两种处理方案：
 
-- **方案 A（推荐）**：服务器项目根保持 `/home/evev/noiseloss`，同步音频与 per-token loss 源：
+- **方案 A（推荐，路径无关）**：跑一次 `run_data_preprocess.sh musiceval`，会**把绝对路径全部改写成以 `${PROJECT_ROOT}` 为根**，同时把音频 / per-token loss 源同步到 `${PROJECT_ROOT}` 下对应位置：
 
 ```bash
-rsync -av --progress \
-  /home/evev/noiseloss/datasets/Phase5_2/MusicEval-full/wav/ \
-  <server>:/home/evev/noiseloss/datasets/Phase5_2/MusicEval-full/wav/
-
-rsync -av --progress \
-  /home/evev/noiseloss/experiments/phase7/loss_eval_experiments/exp10_large_scale_eval/results/per_token_losses/wav_tokens/ \
-  <server>:/home/evev/noiseloss/experiments/phase7/loss_eval_experiments/exp10_large_scale_eval/results/per_token_losses/wav_tokens/
+bash phase7_release/scripts/run/run_data_preprocess.sh musiceval
 ```
 
-- **方案 B**：项目根不同，重新生成 split 后把 `experiments/phase7/loss_eval_experiments/exp11_large_scale_replication/1_data_preparation/` 目录同步过来，再执行：
+等价于：
+
+```bash
+conda run -n torch21 python phase7_release/scripts/data/preprocess_data.py \
+  --config phase7_release/config/paths.yaml \
+  musiceval-copy-splits
+```
+
+- **方案 B（手动 rsync）**：如果你已经在 dev 机器上有对应的音频 + per-token loss 源目录，想直接原样同步（保持路径结构），在 **dev 端**执行：
+
+```bash
+# 在 dev 机器上运行：用 dev 侧的项目根作为源，server 侧的项目根作为目标
+SRC_ROOT="${SRC_PROJECT_ROOT}"                # dev 机器的项目根（在 dev 机上 export 一次）
+DST_ROOT="/home/cliu/wk/noiseloss"            # server 上的 PROJECT_ROOT
+
+rsync -av --progress \
+  "${SRC_ROOT}/datasets/Phase5_2/MusicEval-full/wav/" \
+  "<server>:${DST_ROOT}/datasets/Phase5_2/MusicEval-full/wav/"
+
+rsync -av --progress \
+  "${SRC_ROOT}/experiments/phase7/loss_eval_experiments/exp10_large_scale_eval/results/per_token_losses/wav_tokens/" \
+  "<server>:${DST_ROOT}/experiments/phase7/loss_eval_experiments/exp10_large_scale_eval/results/per_token_losses/wav_tokens/"
+```
+
+同步完仍需要跑一次方案 A 那条 preprocess 命令，让 split CSV 里的绝对路径落到 `${PROJECT_ROOT}` 下。
+
+- **方案 C**：想完全抛弃 dev 侧 split，重新生成。把 `experiments/phase7/loss_eval_experiments/exp11_large_scale_replication/1_data_preparation/` 目录同步过来再跑：
 
 ```bash
 bash phase7_release/scripts/run/run_data_preprocess.sh musiceval
@@ -578,7 +631,7 @@ conda run -n torch21 python phase7_release/scripts/data/preprocess_data.py \
 ### Phase A — 一次性环境准备
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
 ```
 
@@ -592,7 +645,7 @@ ls external/musicdiscovery_checkpoints/sae-4_k_32_layer_12/facebook/musicgen-sma
 ### Phase B — MusicEval 14 实验（小规模闸门）
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
 ```
 
@@ -663,7 +716,7 @@ outputs/
 ### Phase C — Segment-level RNN 分析（可选，但推荐）
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh                 # loss-only
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh --with-entropy  # loss + entropy
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh --use-noisy     # noisy 标签
@@ -683,7 +736,7 @@ phase7_release/outputs/reports/segment_curves/*.csv
 当前 `config/data/full_datasets.yaml` 默认启用 4 个单库（`musicpref / aime / songeval / music_arena`）+ 1 个合库（`all_5_datasets`）；`musiceval` 在此被禁用以避免与 Phase B 重复。因此一次 `--splits clean` 会产生 **4 × 14 + 1 × 14 = 70 个主实验**；`--splits noisy` 再跑一遍 → 共 140。
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits clean
 # noisy：
 bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits noisy
@@ -769,7 +822,7 @@ bash phase7_release/scripts/run/run_musiceval_14_experiments.sh --reset-state
 在服务器上按顺序执行以下自检：
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 
 # 1. git & submodules
 git status
@@ -822,8 +875,10 @@ nvidia-smi --query-gpu=index,memory.free,utilization.gpu --format=csv
 # 0) 系统依赖
 sudo apt-get install -y git git-lfs curl build-essential ffmpeg libsndfile1 && git lfs install
 
-# 1) 代码 + 子模块
-cd /home/evev && git clone <repo> noiseloss && cd noiseloss && git submodule update --init --recursive
+# 1) 代码 + 子模块（PROJECT_ROOT 请先 export 成你的实际路径，例如 /home/cliu/wk/noiseloss）
+mkdir -p "$(dirname "${PROJECT_ROOT}")" && cd "$(dirname "${PROJECT_ROOT}")"
+git clone <repo> "$(basename "${PROJECT_ROOT}")" && cd "${PROJECT_ROOT}"
+git submodule update --init --recursive
 
 # 2) 主 conda 环境
 conda create -y -n torch21 python=3.10 && conda activate torch21

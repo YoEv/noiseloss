@@ -196,7 +196,8 @@ def _print_loss_progress(split_csv: str, split_name: str, loss_dir: str) -> None
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run all 14 MusicEval experiments with per-step tqdm timing bars.")
-    parser.add_argument("--project-root", type=str, default="/home/evev/noiseloss")
+    parser.add_argument("--project-root", type=str, default=None,
+                        help="Project root (default: env PROJECT_ROOT, else auto-detected from repo layout).")
     parser.add_argument("--config", type=str, default="phase7_release/config/paths.yaml")
     parser.add_argument("--torch-env", type=str, default="torch21")
     parser.add_argument("--musicdiscovery-env", type=str, default="musicdiscovery310")
@@ -258,8 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    from phase7_release.lib.repro.data_paths import detect_project_root
     args = build_parser().parse_args()
-    project_root = os.path.abspath(args.project_root)
+    project_root = os.path.abspath(args.project_root) if args.project_root else detect_project_root()
     run_tag = args.run_tag or f"musiceval14_{args.dataset}_{args.splits}"
     state_dir = args.state_dir if os.path.isabs(args.state_dir) else os.path.join(project_root, args.state_dir)
     os.makedirs(state_dir, exist_ok=True)

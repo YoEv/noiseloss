@@ -17,7 +17,7 @@ from phase7_release.lib.repro.curve_channels import (
     read_entropy_codebook_curves,
     read_loss_codebook_curves,
 )
-from phase7_release.lib.repro.data_paths import get_exp11_split_paths
+from phase7_release.lib.repro.data_paths import get_exp11_split_paths, resolve_project_root
 from phase7_release.lib.repro.metrics import safe_pearson_spearman
 from phase7_release.lib.repro.nets import LossCurveCNN, TransformerEncoderRegressor
 
@@ -178,7 +178,7 @@ def main() -> None:
     with open(args.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
     split_tag = args.splits
-    project_root = cfg.get("project_root", "/home/evev/noiseloss")
+    project_root = resolve_project_root(cfg)
     seq_len = int(cfg.get("seq_len", 1500))
     out_cfg = cfg.get("outputs", {})
     reports_dir = out_cfg.get("reports", "phase7_release/outputs/reports")

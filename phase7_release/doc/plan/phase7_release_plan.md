@@ -1,5 +1,8 @@
 # Phase7 Release — 系统化实施方案
 
+> 约定：`phase7_release` 内所有脚本 / Python 文件会**自动把当前仓库根作为项目根**（脚本由 `$(dirname $0)/../../..` 推导，Python 由 `__file__` 向上寻找 `phase7_release/` 的父目录）。
+> 需要覆盖时 `export PROJECT_ROOT=<your_path>`；文档示例里的 `cd "${PROJECT_ROOT}"` 会立即采用它。
+
 ## 1) 目标与范围
 
 本方案用于 `phase7_release` 的收官搭建，目标是形成一套可长期复用的训练与分析系统，而不是一次性脚本集合。
@@ -255,28 +258,28 @@ SAE 提取统一使用 `musicdiscovery` 的 MusicGen-small 方案：
 ### 10.1 先装 SAE（必须）
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
 ```
 
 可选环境变量：
 
 ```bash
-PROJECT_ROOT=/home/evev/noiseloss TORCH_ENV=torch21 \
+PROJECT_ROOT="<your_path>" TORCH_ENV=torch21 \
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
 ```
 
 ### 10.2 MusicEval 14实验统一运行
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
 ```
 
 noisy 标签版：
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh --splits noisy
 ```
 
@@ -285,21 +288,21 @@ bash phase7_release/scripts/run/run_musiceval_14_experiments.sh --splits noisy
 loss-only（默认）：
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh
 ```
 
 loss+entropy：
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh --with-entropy
 ```
 
 ### 10.4 Full-scale 并发运行（8xH100）
 
 ```bash
-cd /home/evev/noiseloss
+cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits clean
 ```
 

@@ -3,6 +3,9 @@
 This folder provides a clean, server-friendly implementation for Phase7 workflows.
 All runnable code paths are self-contained under `phase7_release/`.
 
+> 约定：`phase7_release` 里所有脚本和 Python 文件会 **自动把本仓库根目录作为项目根**（脚本从 `$(dirname $0)/../../..` 推导；Python 从 `__file__` 往上找 `phase7_release` 同级目录）。
+> 如需覆盖，`export PROJECT_ROOT=<your_path>` 即可；所有路径都会立即以该值为根。
+
 ## Core workflows
 
 1. SAE feature extraction (musicdiscovery backend)

@@ -90,7 +90,8 @@ def _eligible_gpu_ids(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Run full-scale 14-experiment matrix in parallel across GPUs.")
-    p.add_argument("--project-root", type=str, default="/home/evev/noiseloss")
+    p.add_argument("--project-root", type=str, default=None,
+                   help="Project root (default: env PROJECT_ROOT, else auto-detected from repo layout).")
     p.add_argument("--base-config", type=str, default="phase7_release/config/paths.yaml")
     p.add_argument("--full-config", type=str, default="")
     p.add_argument("--torch-env", type=str, default="torch21")
@@ -159,8 +160,9 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
 
 
 def main() -> int:
+    from phase7_release.lib.repro.data_paths import detect_project_root
     args = build_parser().parse_args()
-    project_root = os.path.abspath(args.project_root)
+    project_root = os.path.abspath(args.project_root) if args.project_root else detect_project_root()
     base_cfg = args.base_config if os.path.isabs(args.base_config) else os.path.join(project_root, args.base_config)
     if args.full_config:
         full_cfg = args.full_config if os.path.isabs(args.full_config) else os.path.join(project_root, args.full_config)
