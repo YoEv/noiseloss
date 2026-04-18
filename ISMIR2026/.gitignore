@@ -1,0 +1,16 @@
+# OS junk
+.DS_Store
+
+# LaTeX build artifacts
+latex/*.aux
+latex/*.bbl
+latex/*.blg
+latex/*.log
+latex/*.out
+latex/*.toc
+latex/*.fls
+latex/*.fdb_latexmk
+latex/*.synctex.gz
+latex/*.nav
+latex/*.snm
+latex/*.vrb

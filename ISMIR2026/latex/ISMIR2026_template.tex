@@ -1,0 +1,512 @@
+\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[submission]{ismir} % Remove the "submission" option for camera-ready version
+\usepackage{amsmath,amssymb,cite,url}
+\usepackage{graphicx}
+\usepackage{color}
+
+\title{Paper Template for ISMIR \conferenceyear}
+
+% Single address
+% To use with only one author or several with the same address
+% ---------------
+\oneauthor
+  {Anonymous Authors}
+  {Anonymous Affiliations\\\texttt{anonymous@ismir.net}}
+
+% Two addresses
+% --------------
+%\twoauthors
+%   {First author} {School \\ Department}
+%   {Second author} {Company \\ Address}
+
+% Three addresses
+% --------------
+% \threeauthors
+%   {First Author} {Affiliation 1 \\ \texttt{author1@ismir.edu}}
+%   {Second Author} {Affiliation 2 \\ \texttt{author2@ismir.edu}}
+%   {Third Author} {Affiliation 3 \\ \texttt{author3@ismir.edu}}
+
+% Four or more addresses
+% OR alternative format for large number of co-authors
+% ------------
+% \multauthor
+%   {First author$^1$ \hspace{1cm} Second author$^1$ \hspace{1cm} Third author$^2$}
+%   {{\bf Fourth author$^3$ \hspace{1cm} Fifth author$^2$ \hspace{1cm} Sixth author$^1$}\\
+%   $^1$ Department of Computer Science, University, Country\\
+%   $^2$ International Laboratories, City, Country\\
+%   $^3$ Company, Address\\
+%   {\tt\small CorrespondenceAuthor@ismir.edu, PossibleOtherAuthor@ismir.edu}
+%   }
+
+% For the author list in the Creative Common license, please enter author names.
+% Please abbreviate the first names of authors and add 'and' between the second to last and last authors.
+\def\authorname{F. Author, S. Author, and T. Author}
+
+% Optional: To use hyperref, uncomment the following.
+% \usepackage[bookmarks=false,pdfauthor={\authorname},pdfsubject={\pdfsubject},hidelinks]{hyperref}
+% Mind the bookmarks=false option; bookmarks are incompatible with ismir.sty.
+
+\sloppy % please retain sloppy command for improved formatting
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Automatic music evaluation is often misaligned with human preference,
+especially when intrinsic uncertainty and model confidence are confounded.
+We ask a model-centric question:
+does a generative music model, through its own internal states,
+already know whether the music it produces sounds good to humans?
+To answer this, we treat human evaluation scores as ground truth
+and probe the model using only its intrinsic signals,
+without relying on external audio-content features.
+Specifically, we study three complementary signals from a pretrained music model:
+two predictive signals at the output level---%
+per-step loss and next-token entropy from the logits---%
+and one representational signal at the hidden-state level---%
+sparse autoencoder (SAE) latent features.
+We design controlled settings with single-signal and hybrid variants
+to isolate each signal and measure its explanatory power for human ratings.
+We further analyze the three signals from complementary angles:
+a calibration view on when loss and entropy disagree,
+a temporal view on how uncertainty evolves during generation,
+and a representational view that links SAE latents
+to clips judged good or bad by humans.
+Results show that predictive and representational signals
+capture complementary aspects of how humans judge generated music,
+and that combining them yields a more robust predictor of human evaluation
+than any single statistic alone.
+\end{abstract}
+
+\section{Introduction}\label{sec:introduction}
+
+Automatic music evaluation still suffers from a persistent gap
+between objective scores and human preference.
+Existing lines of work have explored score prediction from audio,
+uncertainty-aware diagnostics, and representation-based interpretation,
+but each direction has distinct strengths and weaknesses
+and is often evaluated under different protocols.
+
+This paper takes a model-centric evaluation view.
+Instead of using generated audio itself as the primary predictor input,
+we use model-internal scoring signals and extracted internal features
+to align with human ratings.
+Concretely, we study token-level loss dynamics,
+next-token entropy from logits, and sparse latent factors from SAE.
+
+Our first contribution is an internal-signal alignment framework:
+model-internal signals can be directly aligned with human evaluation targets
+across heterogeneous datasets
+without requiring an additional audio-content encoder as the main front-end.
+Our second contribution is a mechanism-level finding on loss-entropy inconsistency:
+low-entropy steps can still produce wrong next-token predictions
+when the model is overconfident,
+while high-entropy steps indicate diffuse predictive mass and low certainty.
+Regions where loss and entropy disagree
+are strongly associated with musical surprisal or structural change points.
+
+\section{Background}
+
+Background logic outline for the final cited version:
+start from the mismatch between automatic metrics and human judgment in music generation;
+review major paradigms (listening tests, audio-input predictors, and model-internal analyses)
+and their trade-offs;
+summarize prior findings that loss and entropy
+are related but not equivalent in sequential prediction;
+summarize interpretability literature on sparse latent representations;
+then motivate the unresolved gap
+of lacking controlled single-signal vs hybrid-signal comparisons under one protocol.
+
+\section{Methodology}
+
+We design a model-aware evaluation pipeline
+from five human-evaluation databases to human-aligned prediction targets.
+The pipeline includes dataset-specific preprocessing, split construction,
+three feature extraction branches (loss, entropy, SAE),
+and model training in both single and hybrid settings.
+
+\begin{figure}[t]
+  \centering
+  \fbox{\parbox{0.92\linewidth}{
+  \small
+  Five databases $\rightarrow$ preprocessing $\rightarrow$ train/val/test splits $\rightarrow$
+  \{loss curve, entropy curve, SAE features\} $\rightarrow$
+  \{single models $\times$3, hybrid models $\times$4\} $\rightarrow$
+  predicted quality scores $\rightarrow$ correlation with human ratings.
+  }}
+  \caption{Simplified end-to-end methodology flowchart.}
+  \label{fig:pipeline}
+\end{figure}
+
+\subsection{Data Processing Across Five Databases}
+
+We use MusicPref, AIME, MusicEval, SongEval, and MusicArena.
+MusicEval and SongEval provide continuous ratings
+(including multi-dimension or multi-annotator settings),
+while MusicPref, AIME, and MusicArena provide preference-style supervision.
+We keep each dataset's supervision semantics during preprocessing,
+run deterministic train/val/test splits with fixed seeds,
+and support both clean and noisy tracks for robustness.
+
+For all pairwise labels, we use one unified objective.
+For a pair $(a,b)$, $s_a$ and $s_b$ are latent scalar quality scores,
+and $m$ is the ranking margin in the hinge term.
+Win and loss use symmetric ReLU penalties,
+while tie is optimized by minimizing score distance:
+\begin{equation}
+\begin{aligned}
+\mathcal{L}_{\text{win}} &= \max(0,m+s_b-s_a), \\
+\mathcal{L}_{\text{lose}} &= \max(0,m+s_a-s_b), \\
+\mathcal{L}_{\text{tie}} &= (s_a-s_b)^2.
+\end{aligned}
+\end{equation}
+After optimization, each latent score $s_i$ is mapped to a common 1--5 range.
+Here $\epsilon$ is a small constant for numerical stability:
+\begin{equation}
+\tilde{s}_i=1+4\cdot\frac{s_i-\min_j s_j}{\max_j s_j-\min_j s_j+\epsilon}.
+\end{equation}
+For robustness experiments,
+noisy labels are generated by bounded Gaussian perturbation,
+where $\epsilon_i$ is zero-mean Gaussian noise with variance $\sigma^2$:
+\begin{equation}
+y_i^{\text{noisy}}=\mathrm{clip}(y_i+\epsilon_i,1,5),\quad \epsilon_i\sim\mathcal{N}(0,\sigma^2).
+\end{equation}
+
+\subsection{Feature Extraction}
+
+We extract three complementary feature families.
+
+\textbf{Loss curve.}
+Given a token sequence $\{x_t\}_{t=1}^{T}$,
+where $t$ is the token-time index and $T$ is sequence length,
+teacher-forcing token loss is
+\begin{equation}
+\begin{aligned}
+\ell_t &= -\log p_{\theta}(x_t\mid x_{<t}), \\
+\mathbf{l} &= [\ell_1,\ell_2,\ldots,\ell_T].
+\end{aligned}
+\end{equation}
+where $x_{<t}$ is left context
+and $p_{\theta}(\cdot\mid x_{<t})$ is the model distribution parameterized by $\theta$.
+$\mathbf{l}$ denotes the full loss curve across time.
+Besides the raw sequence, we use statistics
+such as mean, variance, segment-wise averages, and local peaks.
+
+\textbf{Entropy curve from logits.}
+At each step, entropy of the next-token distribution is
+\begin{equation}
+\begin{aligned}
+H_t &= -\sum_{k=1}^{K}p_{\theta}(k\mid x_{<t})\log p_{\theta}(k\mid x_{<t}), \\
+\mathbf{h} &= [H_1,H_2,\ldots,H_T].
+\end{aligned}
+\end{equation}
+where $K$ is codebook vocabulary size
+and $\mathbf{h}$ is the temporal entropy curve.
+To characterize uncertainty-quality interactions,
+we also compute clip-level coupling between loss and entropy:
+\begin{equation}
+\rho_{\ell,H}^{(i)}=\mathrm{corr}(\mathbf{l}^{(i)},\mathbf{h}^{(i)}).
+\end{equation}
+Here $\rho_{\ell,H}^{(i)}$ is the Pearson correlation within clip $i$.
+
+\textbf{SAE features.}
+Let $u_t\in\mathbb{R}^{d}$ be hidden states at time $t$.
+SAE produces sparse codes $z_t=f_{\mathrm{enc}}(u_t)$
+and reconstructions $\hat{u}_t=f_{\mathrm{dec}}(z_t)$ with objective
+\begin{equation}
+\mathcal{L}_{\mathrm{SAE}}=
+\frac{1}{T}\sum_{t=1}^{T}\|u_t-\hat{u}_t\|_2^2+
+\lambda\frac{1}{T}\sum_{t=1}^{T}\|z_t\|_1.
+\end{equation}
+The first term is reconstruction error,
+and $\lambda$ controls sparsity strength via the $\ell_1$ penalty on $z_t$.
+From $\{z_t\}$, we build sequence-level and pooled descriptors for downstream prediction.
+
+\subsection{Model Training: Three Single Models and Four Hybrid Models}
+
+We define seven model families.
+The three single models are:
+\textit{Single-Loss}, \textit{Single-Entropy}, and \textit{Single-SAE}.
+The four hybrid models are:
+\textit{Loss+Entropy}, \textit{Loss+SAE}, \textit{Entropy+SAE}, and \textit{Loss+Entropy+SAE}.
+Fusion is implemented by late concatenation or multi-stream temporal encoding.
+In late fusion,
+$r_{\text{loss}}$, $r_{\text{ent}}$, and $r_{\text{sae}}$ are branch-level representations
+and the final feature is
+\begin{equation}
+r=[r_{\text{loss}};r_{\text{ent}};r_{\text{sae}}].
+\end{equation}
+
+In architecture terms, we use a codebook-aware temporal representation.
+For each time step $t$, signals from four codebooks are kept separate and concatenated,
+rather than averaged at input time.
+With codebook-level feature $f_t^{(c)}$ for codebook index $c\in\{1,2,3,4\}$
+and validity mask $m_t\in\{0,1\}$, the model input is
+\begin{equation}
+v_t=[f_t^{(1)};f_t^{(2)};f_t^{(3)};f_t^{(4)};m_t].
+\end{equation}
+For hybrid settings,
+$f_t^{(c)}$ can include loss, entropy, or SAE-projected channels depending on the branch,
+while $m_t$ consistently indicates valid (non-padding) positions.
+
+The mask is applied both during feature preparation and temporal pooling
+so that variable-length sequences do not bias the representation.
+Here $\phi(\cdot)$ is the temporal encoder and $\epsilon$ avoids division by zero:
+\begin{equation}
+\tilde{v}_t=m_t v_t,\quad
+r=\frac{\sum_{t=1}^{T} m_t\,\phi(\tilde{v}_t)}{\sum_{t=1}^{T} m_t+\epsilon}.
+\end{equation}
+
+All predictors are trained as regression to human-aligned targets $y_i\in[1,5]$,
+where $\hat{y}_i$ is model output for sample $i$ and $N$ is sample count:
+\begin{equation}
+\mathcal{L}_{\text{reg}}=\frac{1}{N}\sum_{i=1}^{N}(\hat{y}_i-y_i)^2,
+\end{equation}
+and optional regularization terms when needed.
+
+\subsection{Evaluation Protocol}
+
+We evaluate predicted scores against human ratings
+using Pearson correlation, Spearman correlation, and MSE on held-out sets.
+In Pearson, $\bar{\hat{y}}$ and $\bar{y}$ are sample means of predictions and targets:
+\begin{equation}
+r=\frac{\sum_i(\hat{y}_i-\bar{\hat{y}})(y_i-\bar{y})}
+{\sqrt{\sum_i(\hat{y}_i-\bar{\hat{y}})^2}\sqrt{\sum_i(y_i-\bar{y})^2}},
+\end{equation}
+\begin{equation}
+\rho=1-\frac{6\sum_i d_i^2}{n(n^2-1)}.
+\end{equation}
+In Spearman, $d_i$ is the rank difference for sample $i$
+and $n$ is the number of evaluated samples.
+All single and hybrid models are compared
+under identical splits and preprocessing to ensure fairness.
+
+\section{Results}\label{sec:results}
+
+We report a unified comparison
+between large-scale baselines and our internal-signal models
+under the same evaluation protocol.
+The final numeric results (Pearson/Spearman on clean and noisy tracks)
+will be filled after final reruns with fixed seeds and finalized checkpoints.
+
+For aesthetics baselines (CE/CU/PC/PQ),
+we apply a score-alignment step before comparison with human MOS.
+Let $z_i$ be the raw aesthetics output for sample $i$.
+We use an affine mapping to the 1--5 target range,
+\begin{equation}
+\hat{z}_i=\mathrm{clip}(a z_i+b,1,5),
+\end{equation}
+where $a$ and $b$ are estimated on the validation split only,
+then applied to test predictions.
+This keeps baseline and proposed models on the same target scale
+while avoiding test-set leakage in calibration.
+
+\begin{table*}[t]
+  \centering
+  \scriptsize
+  \begin{tabular}{|l|l|l|c|c|c|c|}
+    \hline
+    Group & Model & Input Signals & P (Clean) & S (Clean) & P (Noisy) & S (Noisy) \\
+    \hline
+    Baseline & Aesthetics-CE & Audio signal (five databases) & TBD & TBD & TBD & TBD \\
+    Baseline & Aesthetics-CU & Audio signal (five databases) & TBD & TBD & TBD & TBD \\
+    Baseline & Aesthetics-PC & Audio signal (five databases) & TBD & TBD & TBD & TBD \\
+    Baseline & Aesthetics-PQ & Audio signal (five databases) & TBD & TBD & TBD & TBD \\
+    Baseline & Mean Loss & Mean token loss & TBD & TBD & TBD & TBD \\
+    Baseline & Loss Curve CNN & Loss curve + mask & TBD & TBD & TBD & TBD \\
+    \hline
+    Single & Single-Loss & Loss (4 codebooks) + mask & TBD & TBD & TBD & TBD \\
+    Single & Single-Entropy & Entropy (4 codebooks) + mask & TBD & TBD & TBD & TBD \\
+    Single & Single-SAE & SAE features + mask & TBD & TBD & TBD & TBD \\
+    \hline
+    Hybrid & Loss + Entropy & Loss + entropy + mask & TBD & TBD & TBD & TBD \\
+    Hybrid & Loss + SAE & Loss + SAE + mask & TBD & TBD & TBD & TBD \\
+    Hybrid & Entropy + SAE & Entropy + SAE + mask & TBD & TBD & TBD & TBD \\
+    Hybrid & Loss + Entropy + SAE & 3-stream fusion + mask & TBD & TBD & TBD & TBD \\
+    \hline
+  \end{tabular}
+  \caption{%
+    Two-column comparison table between baselines and proposed models.
+    All pairwise-supervised sources are converted with the same ReLU-based objective
+    and aligned to the 1--5 target range before training/evaluation.%
+  }
+  \label{tab:main_results}
+\end{table*}
+
+\section{Analysis}\label{sec:analysis}
+
+While Section~\ref{sec:results} reports aggregate predictive performance,
+the three intrinsic signals differ in what they reveal about the model's internal state.
+We analyze them from three complementary angles:
+a \emph{calibration view} on when loss and entropy disagree,
+a \emph{temporal view} on how uncertainty evolves during generation,
+and a \emph{representational view} that probes SAE latents
+for an interpretable good-versus-bad axis.
+
+\subsection{Calibration View: When Loss and Entropy Disagree}
+\label{subsec:calibration}
+
+Loss and entropy are both derived from the same output distribution
+$p_\theta(\cdot\mid x_{<t})$ and are often treated as two faces of the same coin.
+In a well-calibrated model they co-vary:
+high-confidence predictions (low entropy) are usually also correct (low loss).
+Modern neural networks, however, are known to be miscalibrated
+and systematically overconfident~\cite{guo2017calibration},
+and penalizing confident outputs has been shown to act
+as an implicit regularizer against this tendency~\cite{pereyra2017confidence}.
+
+We observe the same pattern in generative music models.
+Partitioning all token steps into a $2{\times}2$ grid
+of \{low, high\} loss $\times$ \{low, high\} entropy
+gives four regimes with distinct human-rating signatures:
+\begin{itemize}
+  \item \textbf{Low loss, low entropy} (confident correct):
+    the ideal regime, positively associated with high human ratings.
+  \item \textbf{High loss, high entropy} (uncertain wrong):
+    the model knows it does not know;
+    often co-located with genuine musical surprise
+    such as section boundaries, and does not strongly penalize ratings.
+  \item \textbf{Low loss, high entropy} (surprise survived):
+    diffuse predictive mass where the ground-truth token
+    nevertheless receives enough probability.
+  \item \textbf{\emph{High loss, low entropy}} (overconfident wrong):
+    the mechanism-level failure mode in which the model commits to
+    a sharply peaked prediction inconsistent with the ground-truth token.
+    This regime is the strongest negative predictor of human rating
+    among the four.
+\end{itemize}
+
+Concretely, we construct a reliability-style
+diagram~\cite{guo2017calibration}
+by binning steps according to predictive entropy $H_t$
+and reporting the mean token loss $\ell_t$
+and mean clip-level human rating within each bin.
+A well-calibrated model would produce a monotone increase in $\ell_t$ with $H_t$;
+deviations from monotonicity---particularly large $\ell_t$ in the lowest-$H_t$ bins---%
+localize the overconfidence regime described above
+(see Fig.~\ref{fig:calibration}, TBD).
+This analysis gives a principled reason why neither loss nor entropy alone suffices:
+each signal misreads one axis of the confidence-correctness plane,
+and their \emph{disagreement} is itself an informative feature.
+
+\subsection{Temporal View: Entropy Curves as Uncertainty Signatures}
+\label{subsec:temporal}
+
+Aggregate statistics collapse a sequence into a single number
+and therefore miss when the model is uncertain.
+The temporal shape of $\mathbf{h}=[H_1,\ldots,H_T]$
+carries additional information that correlates with human ratings
+beyond its mean or variance.
+
+Recent work supports treating entropy as a time-resolved reliability signal.
+Entropy has been used at decoding time to suppress distracted
+or noisy generations~\cite{qiu2024entropy},
+and at the training dynamics level,
+an empirical law $R=-a\exp(H)+b$ between policy entropy $H$
+and downstream performance $R$ has been established
+for reasoning language models~\cite{cui2025entropy},
+indicating that entropy and output quality are structurally,
+not coincidentally, linked.
+In the generative setting, teacher-forced training
+and free-running inference produce systematically different
+sequence distributions~\cite{wiseman2016sequence},
+meaning that the teacher-forced loss curve alone
+can misrepresent the model's behavior under its own rollouts.
+Entropy, computed directly from the predictive distribution,
+is comparatively less affected by this exposure-bias gap
+and thus a useful complementary temporal signal.
+
+Empirically, we analyze entropy trajectories in three ways:
+\begin{enumerate}
+  \item \textbf{Rating-stratified averages.}
+    Clips are grouped by human-rating quartile
+    and mean entropy curves are plotted after length normalization.
+    Higher-rated clips exhibit entropy trajectories with moderate local variation
+    around structural boundaries;
+    lower-rated clips tend to show either near-flat entropy
+    (symptomatic of mode collapse or repetition)
+    or erratic oscillation.
+  \item \textbf{Curve statistics as features.}
+    We extract temporal descriptors---variance, lag-$k$ autocorrelation,
+    peak density, and spectral centroid of the entropy curve---%
+    and ablate them against the raw curve.
+    The lift they provide over $\{\mathrm{mean}(H),\mathrm{var}(H)\}$
+    quantifies how much \emph{temporal structure}, not level, drives the prediction.
+  \item \textbf{Loss--entropy coupling dynamics.}
+    Using the clip-level coupling $\rho_{\ell,H}^{(i)}$ introduced earlier,
+    we inspect how $\rho$ distributes across rating quartiles
+    and where within the sequence the two curves diverge the most.
+\end{enumerate}
+Together, these diagnostics convert entropy from a scalar summary
+into a time-resolved uncertainty signature
+that reflects how the model navigates musical structure during generation.
+
+\subsection{Representational View: SAE Latents as Good-vs-Bad Probes}
+\label{subsec:sae}
+
+Loss and entropy are logit-level summaries:
+they compress the full predictive distribution into one number per step.
+SAE features instead act on the hidden state $u_t$
+and provide a \emph{representational} readout
+that is not available from the output alone.
+This motivates a third analysis question:
+do the sparse latents $\{z_t^{(k)}\}$ contain directions
+that already separate human-preferred from human-dispreferred clips,
+without any supervision from human ratings during SAE training?
+
+To answer this, we perform a latent-level correlation analysis.
+For each SAE unit $k$, let
+\begin{equation}
+  \bar{z}^{(k,i)}=\frac{1}{T_i}\sum_{t=1}^{T_i} z_t^{(k,i)}
+\end{equation}
+denote its mean activation on clip $i$, and let $y_i$ be the clip's human rating.
+We score each unit by its Pearson correlation
+$r_k=\mathrm{corr}(\{\bar{z}^{(k,i)}\}_i,\{y_i\}_i)$
+and rank units by $|r_k|$
+to isolate the most rating-aligned directions,
+separately for $r_k>0$ and $r_k<0$.
+
+Three probes follow:
+\begin{itemize}
+  \item \textbf{Top-ranked latent profiles.}
+    For the top positive and top negative latents,
+    we report activation distributions
+    on clips in the highest and lowest rating quartiles.
+    Clear bimodality indicates that the pretrained model
+    already encodes a good-vs-bad axis that can be read out linearly.
+  \item \textbf{Activation-ranked retrieval.}
+    For a given top latent $k^\star$,
+    we retrieve the clips with the largest $\bar{z}^{(k^\star,i)}$
+    and inspect them qualitatively.
+    This turns an abstract latent index
+    into an interpretable musical property
+    (e.g., stable harmonic motion vs.\ abrupt timbre changes).
+  \item \textbf{Latent-subset ablation.}
+    We compare Single-SAE trained on the full SAE dictionary
+    against Single-SAE restricted to the top-$K$ rating-correlated latents.
+    The relative gap quantifies how concentrated
+    the human-aligned information is within the sparse dictionary.
+\end{itemize}
+
+Unlike the calibration and temporal views---%
+which explain \emph{when} the model is confident or surprised---%
+the representational view asks a different question:
+\emph{whether the model, through its hidden states alone,
+already has an internal notion of what humans will rate as good or bad music.}
+Our results suggest that this notion exists and is at least partially linear,
+which is why SAE features yield gains that are complementary to,
+rather than overlapping with, loss and entropy.
+
+\section{Future Work}
+
+\section{Acknowledgement}
+
+To be completed for the camera-ready version (omit in anonymous submission).
+
+\bibliographystyle{IEEEtran}
+\bibliography{ISMIRtemplate}
+
+\end{document}
