@@ -112,11 +112,40 @@ pip install soundfile librosa tqdm pandas pyyaml
 
 ---
 
-## 4. 外部依赖与 Checkpoint
+## 4. HuggingFace CLI 安装与登录
 
-### 4.1 SAE（必须，一次性）
+`hf` CLI 由 `huggingface_hub` 提供，已随 `torch21` 环境安装。将其加入系统 PATH 以便在任意 shell 中使用：
 
-#### 4.1.0 预备：解决 PyAV 编译失败
+```bash
+echo 'export PATH="/home/cliu/miniconda3/envs/torch21/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+> 如果 conda 安装在其他路径，将 `/home/cliu/miniconda3` 替换为实际路径（`conda info --base` 可查）。
+
+数据下载（§5）需要 HF 账号和访问令牌：
+
+```bash
+hf auth login
+# 按提示粘贴 HF token（https://huggingface.co/settings/tokens）
+# Read 权限即可；访问 gated 仓库需先在 HF 网页上 Accept 对应协议
+```
+
+验证：
+
+```bash
+hf auth whoami
+```
+
+离线服务器无法直接登录时，在能联网的机器上完成登录，然后把 `~/.cache/huggingface/token` rsync 到服务器同路径。
+
+---
+
+## 5. 外部依赖与 Checkpoint
+
+### 5.1 SAE（必须，一次性）
+
+#### 5.1.0 预备：解决 PyAV 编译失败
 
 `musicdiscovery` 依赖 `audiocraft==1.3.0`，后者 pin 了 `av==11.0.0`。若目标机器没有 FFmpeg dev 头文件，pip 会回退到源码编译并报错：
 
@@ -125,7 +154,7 @@ Package 'libavformat', required by 'virtual:world', not found
 ERROR: Failed to build 'av' when getting requirements to build wheel
 ```
 
-**二选一**，在运行 §4.1.1 之前先执行：
+**二选一**，在运行 §5.1.1 之前先执行：
 
 **Option A（推荐）**：通过 conda-forge 装 FFmpeg dev 头（对后续 ffmpeg 调用也有益）
 
@@ -139,7 +168,7 @@ conda install -n torch21 -c conda-forge -y 'ffmpeg=6.*' pkg-config
 conda run -n torch21 python -m pip install --only-binary=:all: av==11.0.0
 ```
 
-#### 4.1.1 安装 musicdiscovery + 下载 SAE checkpoint
+#### 5.1.1 安装 musicdiscovery + 下载 SAE checkpoint
 
 ```bash
 cd "${PROJECT_ROOT}"
@@ -157,10 +186,10 @@ external/musicdiscovery_checkpoints/sae-4_k_32_layer_12/facebook/musicgen-small/
 
 > 若 S3 上 `layer_12` 不存在，脚本会自动回退到最近已知层并打印 `selected checkpoint prefix`，请核对。
 
-### 4.2 MusicGen-small
+### 5.2 MusicGen-small
 
 首次运行特征提取时，`transformers` 会自动下载约 1.5 GB 到 `~/.cache/huggingface`。离线服务器需提前 rsync 过来。
 
-### 4.3 audiobox-aesthetics checkpoint（可选）
+### 5.3 audiobox-aesthetics checkpoint（可选）
 
 首次调用 `AesPredictor()` 时自动下载。离线时参考 `external/audiobox-aesthetics/README.md` 手动放置。

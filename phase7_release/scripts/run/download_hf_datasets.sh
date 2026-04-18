@@ -19,7 +19,7 @@ declare -A REPOS=(
   ["AIME"]="disco-eth/AIME"
   ["AIME-survey"]="disco-eth/AIME-survey"
   ["SongEval"]="ASLP-lab/SongEval"
-  ["MusicArena"]="gneubig/music-arena-public"
+  ["MusicArena"]="music-arena/music-arena-dataset"
   ["MusicEval"]="BAAI/MusicEval"
 )
 

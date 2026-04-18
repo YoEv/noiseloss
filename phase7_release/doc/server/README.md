@@ -52,18 +52,21 @@ bash phase7_release/scripts/run/setup_environments.sh
 # SAE deps（装入 torch21）+ checkpoint
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
 
-# 4. 数据下载
+# 4. HuggingFace 登录
+hf auth login
+
+# 5. 数据下载
 bash phase7_release/scripts/run/download_hf_datasets.sh
 # 音频落地 + 清单生成 + split 生成 → 详见 data_prep.md
 
-# 5. 小规模闸门（Phase B）
+# 6. 小规模闸门（Phase B）
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh --splits noisy
 
-# 6. Segment 分析（Phase C，可选）
+# 7. Segment 分析（Phase C，可选）
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh
 
-# 7. 大规模（Phase D，前置：data/full_splits/ 已生成）
+# 8. 大规模（Phase D，前置：data/full_splits/ 已生成）
 bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits clean
 bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits noisy
 ```

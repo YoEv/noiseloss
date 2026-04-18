@@ -24,9 +24,9 @@ phase7_release/
 | AIME 2025 | `disco-eth/AIME` | 音频 | 大规模单库（配 survey） |
 | AIME-survey 2025 | `disco-eth/AIME-survey` | pairwise | AIME 的 label |
 | SongEval 2025 | `ASLP-lab/SongEval` | 5 维 Likert | 大规模单库（原生分） |
-| MusicArena 2025 | `gneubig/music-arena-public` | pairwise（battle JSON） | 大规模单库 |
+| MusicArena 2025 | `music-arena/music-arena-dataset` | pairwise（battle JSON） | 大规模单库 |
 
-离线服务器：先在跳板机上下载后 rsync 过去；在线服务器可直接 `huggingface-cli login` + `download`。
+前置：确保已完成 HF 登录（见 [setup.md §4](setup.md#4-huggingface-登录)）。离线服务器先在跳板机上下载后 rsync 过去。
 
 ---
 
