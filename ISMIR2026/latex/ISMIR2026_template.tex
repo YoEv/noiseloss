@@ -68,18 +68,39 @@
   (3) concepts extracted from the model using sparse autoencoders (SAE).
   Using these features, we train a lightweight prediction model to estimate subjective ratings. 
   We evaluate these features both individually and in combination. 
-  Our underlying assumption is that these signals partially capture the 
-  listening experience: prediction loss and entropy reflect expectation, 
-  anticipation, and surprise, while SAE latent features capture higher-level 
-  musical representations that align with human judgments of good versus bad music clips.
-  Experiments on five human-evaluation benchmarks---
-  MusicEval, SongEval, MusicPref, AIME, and Music Arena---%
-  spanning continuous ratings and pairwise preferences,
-  show that each intrinsic signal is individually predictive of human ratings,
-  and that predictive and representational signals
-capture partially complementary aspects of human judgment---%
-combining them helps on some benchmarks,
-while individual signals are already competitive on others.
+%   Our underlying assumption is that these signals partially capture the 
+%   listening experience: prediction loss and entropy reflect expectation and surprise, 
+%   while SAE latent features capture higher-level musical representations 
+%   that align with human judgments of good versus bad music clips.
+%   Experiments on five human-evaluation benchmarks,
+%   spanning continuous ratings and pairwise preferences,
+%   show that each intrinsic signal is individually predictive of human ratings,
+%   and that predictive and representational signals
+% capture partially complementary aspects of human judgment---%
+% combining them helps on some benchmarks,
+% while individual signals are already competitive on others.
+% We assume these signals partially capture the listening experience---
+% prediction loss and entropy reflect expectation and surprise, 
+% while SAE latent features capture higher-level musical representations that align 
+% with human judgments of good versus bad music clips---and experiments on five 
+% human-evaluation benchmarks spanning continuous ratings and pairwise preferences 
+% confirm this correspondence:
+% the temporal dynamics of loss and entropy
+% track listeners' moment-to-moment anticipation and surprise,
+% while SAE latent directions separate clips humans rate as good
+% from those rated as bad---%
+% with predictive and representational signals
+% proving partially complementary.
+We hypothesize that these signals partially capture the listening experience:
+the temporal and frequency-domain structure of loss and entropy
+reflect listeners' expectation and surprise,
+while gradient directions in SAE latent space
+separate clips humans rate as good from those rated as bad.
+Experiments on five human-evaluation benchmarks
+spanning continuous ratings and pairwise preferences
+confirm this hypothesis,
+with predictive and representational signals
+proving partially complementary.
 
 % ...
 % We further show that three complementary views---%
