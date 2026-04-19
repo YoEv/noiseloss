@@ -40,9 +40,116 @@
         MONTH = {September},
 	}
 
-% ----------------------------------------------------------------
-% Added for Analysis section (calibration / entropy / SAE probing)
-% ----------------------------------------------------------------
+% ================================================================
+% Music quality evaluation: audio-based predictors and benchmarks
+% ================================================================
+
+@ARTICLE{tjandra2025audiobox,
+        AUTHOR = {Andros Tjandra and Yi-Chiao Wu and Baishan Guo and John Hoffman and Brian Ellis and Apoorv Vyas and Bowen Shi and Sanyuan Chen and Matt Le and Nick Zacharov and Carleigh Wood and Ann Lee and Wei-Ning Hsu},
+        TITLE = {Meta Audiobox Aesthetics: Unified Automatic Quality Assessment for Speech, Music, and Sound},
+        JOURNAL = {arXiv preprint arXiv:2502.05139},
+        YEAR = {2025}
+}
+
+@ARTICLE{ma2025cmibench,
+        AUTHOR = {Yinghao Ma and Siyou Li and Juntao Yu and Emmanouil Benetos and Akira Maezawa},
+        TITLE = {{CMI-Bench}: A Comprehensive Benchmark for Evaluating Music Instruction Following},
+        JOURNAL = {arXiv preprint arXiv:2506.12285},
+        YEAR = {2025}
+}
+
+@ARTICLE{ma2026cmireward,
+        AUTHOR = {Yinghao Ma and Haiwen Xia and Hewei Gao and Weixiong Chen and Yuxin Ye and Yuchen Yang and Sungkyun Chang and Mingshuo Ding and Yizhi Li and Ruibin Yuan and Simon Dixon and Emmanouil Benetos},
+        TITLE = {{CMI-RewardBench}: Evaluating Music Reward Models with Compositional Multimodal Instruction},
+        JOURNAL = {arXiv preprint arXiv:2603.00610},
+        YEAR = {2026}
+}
+
+% ================================================================
+% Human evaluation datasets for music generation
+% ================================================================
+
+@ARTICLE{liu2025musiceval,
+        AUTHOR = {Cheng Liu and Hui Wang and Jinghua Zhao and Shiwan Zhao and Hui Bu and Xin Xu and Jiaming Zhou and Haoqin Sun and Yong Qin},
+        TITLE = {{MusicEval}: A Generative Music Dataset with Expert Ratings for Automatic Text-to-Music Evaluation},
+        JOURNAL = {arXiv preprint arXiv:2501.10811},
+        YEAR = {2025}
+}
+
+@ARTICLE{yao2025songeval,
+        AUTHOR = {Jixun Yao and Guobin Ma and Huixin Xue and Huakang Chen and Chunbo Hao and Yuepeng Jiang and Haohe Liu and Ruibin Yuan and Jin Xu and Wei Xue and Hao Liu and Lei Xie},
+        TITLE = {{SongEval}: A Benchmark Dataset for Song Aesthetics Evaluation},
+        JOURNAL = {arXiv preprint arXiv:2505.10793},
+        YEAR = {2025}
+}
+
+@ARTICLE{huang2025musicpref,
+        AUTHOR = {Yichen Huang and Zachary Novack and Koichi Saito and Jiatong Shi and Shinji Watanabe and Yuki Mitsufuji and John Thickstun and Chris Donahue},
+        TITLE = {Aligning Text-to-Music Evaluation with Human Preferences},
+        JOURNAL = {arXiv preprint arXiv:2503.16669},
+        YEAR = {2025}
+}
+
+@INPROCEEDINGS{grotschla2025aime,
+        AUTHOR = {Florian Gr{\"o}tschla and Ahmet Solak and Luca A. Lanzend{\"o}rfer and Roger Wattenhofer},
+        TITLE = {Benchmarking Music Generation Models and Metrics via Human Preference Studies},
+        BOOKTITLE = {Proc. of the IEEE Int. Conf. on Acoustics, Speech, and Signal Processing (ICASSP)},
+        YEAR = {2025}
+}
+
+@ARTICLE{kim2025musicarena,
+        AUTHOR = {Yonghyun Kim and Wayne Chi and Anastasios N. Angelopoulos and Wei-Lin Chiang and Koichi Saito and Shinji Watanabe and Yuki Mitsufuji and Chris Donahue},
+        TITLE = {Music Arena: Live Evaluation for Text-to-Music},
+        JOURNAL = {arXiv preprint arXiv:2507.20900},
+        YEAR = {2025}
+}
+
+% ================================================================
+% Model-internal signals: loss, likelihood, confidence
+% ================================================================
+
+@ARTICLE{li2026noiseloss,
+        AUTHOR = {Xiaosha Li and Chun Liu and Ziyu Wang},
+        TITLE = {When Noise Lowers the Loss: Rethinking Likelihood-Based Evaluation in Music Large Language Models},
+        JOURNAL = {arXiv preprint arXiv:2602.02738},
+        YEAR = {2026}
+}
+
+@ARTICLE{velickovic2026perplexity,
+        AUTHOR = {Petar Veli{\v{c}}kovi{\'c} and Federico Barbero and Christos Perivolaropoulos and Simon Osindero and Razvan Pascanu},
+        TITLE = {Perplexity Cannot Always Tell Right from Wrong},
+        JOURNAL = {arXiv preprint arXiv:2601.22950},
+        YEAR = {2026}
+}
+
+% ================================================================
+% Sparse autoencoders and representational probing for music
+% ================================================================
+
+@ARTICLE{singh2025steering,
+        AUTHOR = {Nikhil Singh and Manuel Cherep and Pattie Maes},
+        TITLE = {Discovering and Steering Interpretable Concepts in Large Generative Music Models},
+        JOURNAL = {arXiv preprint arXiv:2505.18186},
+        YEAR = {2025}
+}
+
+% ================================================================
+% Musical expectation and the psychology of anticipation
+% ================================================================
+
+@BOOK{huron2006sweet,
+        AUTHOR = {David Huron},
+        TITLE = {Sweet Anticipation: Music and the Psychology of Expectation},
+        PUBLISHER = {MIT Press},
+        ADDRESS = {Cambridge, MA},
+        YEAR = {2006},
+        ISBN = {9780262083454}
+}
+
+% ================================================================
+% Calibration, entropy, and sequence-model training dynamics
+% (cited from Analysis section)
+% ================================================================
 
 @INPROCEEDINGS{guo2017calibration,
         AUTHOR = {Chuan Guo and Geoff Pleiss and Yu Sun and Kilian Q. Weinberger},

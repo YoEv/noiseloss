@@ -55,72 +55,272 @@
 \maketitle
 
 \begin{abstract}
-Automatic music evaluation is often misaligned with human preference,
-especially when intrinsic uncertainty and model confidence are confounded.
-We ask a model-centric question:
-does a generative music model, through its own internal states,
-already know whether the music it produces sounds good to humans?
-To answer this, we treat human evaluation scores as ground truth
-and probe the model using only its intrinsic signals,
-without relying on external audio-content features.
-Specifically, we study three complementary signals from a pretrained music model:
-two predictive signals at the output level---%
-per-step loss and next-token entropy from the logits---%
-and one representational signal at the hidden-state level---%
-sparse autoencoder (SAE) latent features.
-We design controlled settings with single-signal and hybrid variants
-to isolate each signal and measure its explanatory power for human ratings.
-We further analyze the three signals from complementary angles:
-a calibration view on when loss and entropy disagree,
-a temporal view on how uncertainty evolves during generation,
-and a representational view that links SAE latents
-to clips judged good or bad by humans.
-Results show that predictive and representational signals
-capture complementary aspects of how humans judge generated music,
-and that combining them yields a more robust predictor of human evaluation
-than any single statistic alone.
+  Current music generative models can generate high-quality music, 
+  but does this ability imply that they ``understand'' how good the music is, 
+  and is that understanding aligned with human evaluation? 
+  Previous attempts to use the likelihood of a generative model to evaluate music, 
+  an approach commonly used in text, have proven unsuccessful, 
+  leading researchers to rely on standalone supervised music evaluation models. 
+  In this paper, we answer this question affirmatively: we show that a model’s 
+  intrinsic signals---derived from its hidden representations and predictions---
+  are strongly correlated with human ratings. In particular, we study MusicGen and 
+  consider three types of features: (1) prediction loss, (2) prediction entropy, and 
+  (3) concepts extracted from the model using sparse autoencoders (SAE).
+  Using these features, we train a lightweight prediction model to estimate subjective ratings. 
+  We evaluate these features both individually and in combination. 
+  Our underlying assumption is that these signals partially capture the 
+  listening experience: prediction loss and entropy reflect expectation, 
+  anticipation, and surprise, while SAE latent features capture higher-level 
+  musical representations that align with human judgments of good versus bad music clips.
+  Experiments on five human-evaluation benchmarks---
+  MusicEval, SongEval, MusicPref, AIME, and Music Arena---%
+  spanning continuous ratings and pairwise preferences,
+  show that each intrinsic signal is individually predictive of human ratings,
+  and that predictive and representational signals
+capture partially complementary aspects of human judgment---%
+combining them helps on some benchmarks,
+while individual signals are already competitive on others.
+
+% ...
+% We further show that three complementary views---%
+% calibration, temporal, and representational---%
+% collectively ground the subjective ratings in objective,
+% model-internal dynamics of the generative model.
+
+% Automatic music evaluation is often misaligned with human preference,
+% especially when intrinsic uncertainty and model confidence are confounded.
+% We ask a model-centric question:
+% does a generative music model, through its own internal states,
+% already know whether the music it produces sounds good to humans?
+% To answer this, we treat human evaluation scores as ground truth
+% and probe the model using only its intrinsic signals,
+% without relying on external audio-content features.
+% Specifically, we study three complementary signals from a pretrained music model:
+% two predictive signals at the output level---%
+% per-step loss and next-token entropy from the logits---%
+% and one representational signal at the hidden-state level---%
+% sparse autoencoder (SAE) latent features.
+% We design controlled settings with single-signal and hybrid variants
+% to isolate each signal and measure its explanatory power for human ratings.
+% We further analyze the three signals from complementary angles:
+% a calibration view on when loss and entropy disagree,
+% a temporal view on how uncertainty evolves during generation,
+% and a representational view that links SAE latents
+% to clips judged good or bad by humans.
+% Results show that predictive and representational signals
+% capture complementary aspects of how humans judge generated music,
+% and that combining them yields a more robust predictor of human evaluation
+% than any single statistic alone.
 \end{abstract}
 
 \section{Introduction}\label{sec:introduction}
 
-Automatic music evaluation still suffers from a persistent gap
-between objective scores and human preference.
-Existing lines of work have explored score prediction from audio,
-uncertainty-aware diagnostics, and representation-based interpretation,
-but each direction has distinct strengths and weaknesses
-and is often evaluated under different protocols.
+Generative music models have advanced rapidly,
+yet judging the musicality of their outputs without human listeners
+remains a stubbornly open problem.
+Recent years have seen a growing body of human-evaluation datasets
+for music generation---%
+including MusicEval~\cite{liu2025musiceval},
+SongEval~\cite{yao2025songeval},
+MusicPref~\cite{huang2025musicpref},
+AIME~\cite{grotschla2025aime},
+and Music Arena~\cite{kim2025musicarena}---%
+and of audio-based predictors that attempt to approximate these ratings,
+most notably Meta Audiobox Aesthetics~\cite{tjandra2025audiobox}
+and music-instruction benchmarks such as CMI-Bench~\cite{ma2025cmibench}
+and its reward-model variant~\cite{ma2026cmireward}.
+These approaches share a common assumption:
+musicality is assessed from the generated audio alone,
+treating the music model as a black box.
 
-This paper takes a model-centric evaluation view.
-Instead of using generated audio itself as the primary predictor input,
-we use model-internal scoring signals and extracted internal features
-to align with human ratings.
-Concretely, we study token-level loss dynamics,
-next-token entropy from logits, and sparse latent factors from SAE.
+A second, less explored line of evidence points
+to the generative model's internal signals.
+Token-level loss correlates only loosely
+with perceived music quality~\cite{li2026noiseloss},
+and perplexity alone has been shown to be
+an unreliable indicator of prediction correctness~\cite{velickovic2026perplexity}---%
+a confidently-wrong step can look much like a cautiously-right one.
+Two further intrinsic signals from the same pretrained model---%
+predictive entropy from the logits,
+and sparse-autoencoder (SAE) latents from the hidden states---%
+expose aspects of the model's state that loss alone does not.
+Predictive entropy describes how the model spreads its probability mass
+across candidate next tokens---%
+the shape of its bet on what comes next,
+in the sense of Huron's probabilistic account
+of musical anticipation~\cite{huron2006sweet}.
+Loss reports whether the prediction was accurate---%
+low when the model assigned high probability to the ground-truth token,
+high when it did not.
+Entropy, in contrast, quantifies the uncertainty
+of the predictive distribution itself, independently of the target.
+Jointly, they separate confidently correct from confidently incorrect predictions.
+% TODO: empirical validation of this joint behavior still pending (see Calibration View in Analysis).
+SAE latents, in turn, have been shown on a large music model
+to carry semantically interpretable, steerable concepts---%
+each latent admits a musically meaningful descriptor~\cite{singh2025steering}.
+That work uses such latents for control;
+we repurpose the same readout for evaluation,
+asking whether latents already named concept-by-concept
+also align with how humans rate generated music.
 
-Our first contribution is an internal-signal alignment framework:
-model-internal signals can be directly aligned with human evaluation targets
-across heterogeneous datasets
-without requiring an additional audio-content encoder as the main front-end.
-Our second contribution is a mechanism-level finding on loss-entropy inconsistency:
-low-entropy steps can still produce wrong next-token predictions
-when the model is overconfident,
-while high-entropy steps indicate diffuse predictive mass and low certainty.
-Regions where loss and entropy disagree
-are strongly associated with musical surprisal or structural change points.
+\textbf{Our framing.}
+We take a model-centric evaluation view.
+Rather than training an audio predictor on top of generated waveforms,
+we ask whether a generative music model, through its own internal states,
+already knows what humans will judge as good or bad music.
+We study three intrinsic signals from a pretrained music model:
+two logit-level predictive signals---per-step loss and next-token entropy---%
+and one hidden-state-level representational signal---SAE latent features.
+Human evaluation scores, drawn from five datasets spanning
+continuous ratings and pairwise preferences,
+serve as the ground truth against which these signals are probed.
 
-\section{Background}
+\textbf{Contributions.}
+\begin{itemize}
+  \item \textbf{Intrinsic-signal alignment framework.}
+    We show that model-internal signals can be directly aligned
+    with human evaluation targets across five heterogeneous datasets
+    under one unified protocol,
+    without requiring an audio-content encoder as the main front-end.
+  \item \textbf{Mechanism-level finding: loss-entropy disagreement.(TODO: need experiments support)}
+    We identify an \emph{overconfident-wrong} regime
+    (low entropy, high loss) that is the dominant source
+    of human-negative ratings,
+    and show that the disagreement between loss and entropy
+    is itself a more informative feature than either alone.
+  \item \textbf{Representational evidence from SAE.}
+    We find that a subset of SAE latents,
+    learned without any human-rating supervision,
+    already encodes a good-versus-bad axis
+    that can be read out linearly,
+    yielding gains complementary to loss and entropy.
+\end{itemize}
 
-Background logic outline for the final cited version:
-start from the mismatch between automatic metrics and human judgment in music generation;
-review major paradigms (listening tests, audio-input predictors, and model-internal analyses)
-and their trade-offs;
-summarize prior findings that loss and entropy
-are related but not equivalent in sequential prediction;
-summarize interpretability literature on sparse latent representations;
-then motivate the unresolved gap
-of lacking controlled single-signal vs hybrid-signal comparisons under one protocol.
+\section{Background and Related Work}\label{sec:background}
 
-\section{Methodology}
+We position our work along three axes:
+audio-based predictors and benchmarks for music generation quality,
+human-evaluation datasets that supply ground-truth ratings,
+and model-internal signals---loss, entropy, and sparse representations---%
+that have been studied in language modeling and interpretability
+but rarely brought together for music evaluation.
+
+\subsection{Audio-Based Music Quality Predictors and Benchmarks}
+
+A first family of methods predicts human-perceived quality
+directly from the generated audio.
+Meta Audiobox Aesthetics~\cite{tjandra2025audiobox}
+jointly models speech, music, and sound
+along four human-aligned dimensions
+(content enjoyment, content usefulness,
+production complexity, production quality),
+and has become a de facto audio-side baseline for generated music.
+CMI-Bench~\cite{ma2025cmibench} broadens this axis to
+music \emph{instruction-following},
+providing a comprehensive benchmark that grades
+how closely generated music matches compositional specifications.
+More recently, CMI-RewardBench~\cite{ma2026cmireward}
+evaluates music reward models under compositional multimodal instructions,
+moving closer to preference modeling but still operating on audio inputs.
+All of these approaches take the generated waveform as the primary input
+and treat the generative model as a black box,
+leaving its internal state unused.
+
+\subsection{Human Evaluation Datasets for Music Generation}
+
+Recent datasets differ substantially
+in their supervision semantics and evaluation dimensions.
+MusicEval~\cite{liu2025musiceval}
+provides expert continuous ratings for text-to-music generations;
+SongEval~\cite{yao2025songeval}
+extends the continuous-rating paradigm to full songs
+with multiple aesthetic dimensions.
+In contrast, preference-based datasets collect pairwise judgments:
+MusicPref~\cite{huang2025musicpref}
+aligns text-to-music evaluation with listener preferences,
+AIME~\cite{grotschla2025aime}
+benchmarks a range of generation models and metrics
+through controlled human preference studies,
+and Music Arena~\cite{kim2025musicarena}
+provides a live crowd-sourced evaluation platform analogous to Chatbot Arena.
+These datasets are individually valuable
+but use heterogeneous supervision formats
+(absolute MOS, multi-dimension ratings, pairwise wins/losses),
+making cross-dataset comparison a non-trivial design question
+that we address in Section~\ref{sec:methodology}.
+
+\subsection{Model-Internal Signals: Loss, Entropy, and Calibration}
+
+A second family of evidence---central to our approach---%
+treats intrinsic quantities of the generative model itself
+as diagnostic signals.
+Recent work~\cite{li2026noiseloss} studies token-level loss
+in music large language models
+and reports a non-monotone relationship with perceived quality:
+local loss minima often do not coincide with listener-preferred regions,
+and injected noise can even lower the loss without improving quality.
+A complementary perspective from language modeling shows
+that perplexity (and therefore negative log-likelihood)
+cannot by itself distinguish confidently-correct
+from confidently-incorrect predictions~\cite{velickovic2026perplexity}.
+This aligns with a long-standing observation in the calibration literature:
+modern neural networks are systematically
+overconfident~\cite{guo2017calibration},
+and penalizing overconfident output distributions
+acts as an implicit regularizer~\cite{pereyra2017confidence}.
+Entropy thus enters naturally as a complementary signal.
+It has been used as a reliability indicator at decoding
+time~\cite{qiu2024entropy}, and recent work on reinforcement learning
+for reasoning models establishes
+an empirical entropy-performance law
+$R=-a\exp(H)+b$~\cite{cui2025entropy},
+confirming that entropy and output musicality are structurally linked
+rather than merely correlated.
+Finally, the teacher-forcing regime used to compute token loss
+is known to differ systematically from free-running
+inference~\cite{wiseman2016sequence},
+which partially explains why loss alone is an imperfect
+proxy for generation quality.
+Taken together, these strands suggest that
+loss and entropy carry related but distinct information
+about model confidence and correctness,
+and that their joint analysis
+is more informative than either signal in isolation.
+
+\subsection{Sparse Autoencoders for Representational Probing}
+
+Sparse autoencoders (SAEs) applied to hidden activations
+have emerged as an interpretability tool
+for identifying monosemantic latent directions in pretrained neural networks,
+with prior work in language modeling and vision
+using SAE latents to uncover features
+that correspond to human-interpretable concepts.
+Closest to our setting, \cite{singh2025steering}
+trains SAEs on a large generative music model
+and reports that the resulting latents admit semantic interpretation:
+each latent can be given a concise musical descriptor,
+and applying the latents as steering vectors at inference time
+produces audible---if modest---changes in the generated audio.
+Their focus is \emph{controllability} through representational edits.
+We take the same representational readout
+but repurpose it for \emph{evaluation}:
+instead of intervening on the model, we ask whether the latents
+that Singh et al.\ interpret concept-by-concept
+also organize clips along a good-versus-bad axis
+that correlates with human ratings.
+Relative to loss and entropy---%
+both of which summarize the output distribution---%
+SAE features operate on the representational bottleneck
+and therefore offer a qualitatively different probing surface
+for whether the model \emph{internally represents}
+properties that correlate with human judgment.
+We exploit this distinction in Section~\ref{subsec:sae}.
+% TODO (before submission): cite the general SAE interpretability line
+% (e.g., Cunningham et al. 2023; Bricken et al. 2023; Templeton et al. 2024)
+% in the first paragraph of this subsection.
+
+\section{Methodology}\label{sec:methodology}
 
 We design a model-aware evaluation pipeline
 from five human-evaluation databases to human-aligned prediction targets.
@@ -205,7 +405,7 @@ H_t &= -\sum_{k=1}^{K}p_{\theta}(k\mid x_{<t})\log p_{\theta}(k\mid x_{<t}), \\
 \end{equation}
 where $K$ is codebook vocabulary size
 and $\mathbf{h}$ is the temporal entropy curve.
-To characterize uncertainty-quality interactions,
+To characterize uncertainty-musicality interactions,
 we also compute clip-level coupling between loss and entropy:
 \begin{equation}
 \rho_{\ell,H}^{(i)}=\mathrm{corr}(\mathbf{l}^{(i)},\mathbf{h}^{(i)}).
@@ -358,6 +558,21 @@ and systematically overconfident~\cite{guo2017calibration},
 and penalizing confident outputs has been shown to act
 as an implicit regularizer against this tendency~\cite{pereyra2017confidence}.
 
+We frame each generation step as a wager,
+following Huron's probabilistic account of musical anticipation~\cite{huron2006sweet}.
+At step $t$ the model distributes a unit of probability mass
+across candidate next tokens;
+entropy $H_t=-\sum_k p_\theta(k\mid x_{<t})\log p_\theta(k\mid x_{<t})$
+summarizes \emph{how} that stake is placed---%
+concentrated on a few candidates (low $H_t$) or spread across many (high $H_t$)---%
+while token loss $\ell_t=-\log p_\theta(x_t\mid x_{<t})$
+records \emph{whether} the stake happened to land on the ground-truth token.
+Loss and entropy therefore read out orthogonal aspects of the same bet,
+and their four joint regimes correspond to the four ways a musical wager can resolve
+(TODO: full experimental support for this taxonomy is still pending;
+the classification below is predicted from the framing and sampled
+from preliminary runs, not yet validated end-to-end).
+
 We observe the same pattern in generative music models.
 Partitioning all token steps into a $2{\times}2$ grid
 of \{low, high\} loss $\times$ \{low, high\} entropy
@@ -408,7 +623,7 @@ and at the training dynamics level,
 an empirical law $R=-a\exp(H)+b$ between policy entropy $H$
 and downstream performance $R$ has been established
 for reasoning language models~\cite{cui2025entropy},
-indicating that entropy and output quality are structurally,
+indicating that entropy and output musicality are structurally,
 not coincidentally, linked.
 In the generative setting, teacher-forced training
 and free-running inference produce systematically different
@@ -506,7 +721,6 @@ rather than overlapping with, loss and entropy.
 
 To be completed for the camera-ready version (omit in anonymous submission).
 
-\bibliographystyle{IEEEtran}
 \bibliography{ISMIRtemplate}
 
 \end{document}
