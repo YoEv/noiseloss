@@ -2,6 +2,9 @@ import argparse
 import os
 import sys
 
+# Ensure repo root is on path (audiobox env doesn't have phase7_release installed)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
+
 from tqdm import tqdm
 
 from phase7_release.lib.repro.data_paths import load_exp11_splits

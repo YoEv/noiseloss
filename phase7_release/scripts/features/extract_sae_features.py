@@ -2,12 +2,12 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS_DIR = os.path.dirname(THIS_DIR)
 sys.path.insert(0, SCRIPTS_DIR)
 
-import pandas as pd
 import torch
 import yaml
 
@@ -21,9 +21,24 @@ def main() -> int:
     )
     parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
     parser.add_argument("--split", type=str, required=True, choices=["train", "val", "test"])
+    # New args forwarded to musicdiscovery extractor
+    parser.add_argument("--mode", type=str, default="sharded", choices=["sharded", "monolithic"])
+    parser.add_argument("--max-seq-len", type=int, default=1500)
+    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--world-size", type=int, default=1,
+                        help="Number of parallel GPU processes for extraction.")
+    parser.add_argument("--gpu-ids", type=str, default="",
+                        help="Comma-separated GPU IDs to use (e.g. '0,1,2,3'). "
+                             "Defaults to 0..world_size-1.")
     known = parser.parse_args()
+
     with open(known.config, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+    if "project_root" not in cfg:
+        env_root = os.environ.get("PROJECT_ROOT", "")
+        if not env_root:
+            env_root = os.path.abspath(os.path.join(os.path.dirname(known.config), "../.."))
+        cfg["project_root"] = env_root
     project_root = cfg["project_root"]
     sae_cfg = cfg.get("sae", {})
     backend = sae_cfg.get("backend", "musicdiscovery")
@@ -44,43 +59,58 @@ def main() -> int:
         )
     output_dir = sae_cfg.get("output_dir", "phase7_release/features/sae")
     output_dir = output_dir if os.path.isabs(output_dir) else os.path.join(project_root, output_dir)
-    split_map = cfg.get("data", {}).get("splits", {}).get(known.splits, {})
-    split_csv = split_map.get(known.split, "")
-    if split_csv:
-        split_csv = split_csv if os.path.isabs(split_csv) else os.path.join(project_root, split_csv)
-    out_npy = os.path.join(output_dir, f"sae_features_{known.split}.npy")
-    out_meta = os.path.join(output_dir, f"sae_features_{known.split}_meta.pt")
-    if split_csv and os.path.isfile(split_csv) and os.path.isfile(out_npy) and os.path.isfile(out_meta):
-        try:
-            df = pd.read_csv(split_csv)
-            meta = torch.load(out_meta, map_location="cpu")
-            lengths = meta.get("lengths", [])
-            if isinstance(lengths, list) and len(lengths) == len(df):
-                print(
-                    f"[skip-existing] {known.split}: found complete SAE artifacts "
-                    f"{out_npy} and {out_meta} (samples={len(lengths)})"
-                )
-                return 0
-        except Exception:
-            pass
-    cmd = [
-        "python",
-        md_script,
-        "--project-root",
-        project_root,
-        "--config",
-        known.config,
-        "--split",
-        known.split,
-        "--splits",
-        known.splits,
-        "--checkpoint-dir",
-        checkpoint_dir,
-        "--output-dir",
-        output_dir,
+
+    # Resolve GPU IDs
+    if known.gpu_ids:
+        gpu_ids = [g.strip() for g in known.gpu_ids.split(",") if g.strip()]
+    else:
+        gpu_ids = [str(i) for i in range(known.world_size)]
+    if len(gpu_ids) < known.world_size:
+        raise ValueError(f"--gpu-ids has {len(gpu_ids)} IDs but --world-size={known.world_size}")
+
+    env_base = os.environ.copy()
+    conda_lib = os.path.normpath(os.path.join(os.path.dirname(sys.executable), "..", "lib"))
+    env_base["LD_LIBRARY_PATH"] = conda_lib + ":" + env_base.get("LD_LIBRARY_PATH", "")
+
+    base_cmd = [
+        "python", md_script,
+        "--project-root", project_root,
+        "--config", known.config,
+        "--split", known.split,
+        "--splits", known.splits,
+        "--checkpoint-dir", checkpoint_dir,
+        "--output-dir", output_dir,
+        "--mode", known.mode,
+        "--max-seq-len", str(known.max_seq_len),
+        "--batch-size", str(known.batch_size),
+        "--world-size", str(known.world_size),
     ]
-    result = subprocess.run(cmd, check=False)
-    return int(result.returncode)
+
+    if known.world_size == 1:
+        env = dict(env_base)
+        env["CUDA_VISIBLE_DEVICES"] = gpu_ids[0]
+        result = subprocess.run(base_cmd + ["--rank", "0"], check=False, env=env)
+        return int(result.returncode)
+
+    # Multi-GPU: spawn one process per rank
+    procs = []
+    for rank in range(known.world_size):
+        env = dict(env_base)
+        env["CUDA_VISIBLE_DEVICES"] = gpu_ids[rank]
+        cmd = base_cmd + ["--rank", str(rank)]
+        print(f"[spawn] rank={rank} GPU={gpu_ids[rank]} {' '.join(cmd[-4:])}")
+        procs.append(subprocess.Popen(cmd, env=env))
+
+    # Wait for all ranks
+    failed = []
+    for rank, proc in enumerate(procs):
+        rc = proc.wait()
+        if rc != 0:
+            failed.append(rank)
+    if failed:
+        print(f"[error] ranks failed: {failed}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

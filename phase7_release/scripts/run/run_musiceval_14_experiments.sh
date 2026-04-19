@@ -5,12 +5,13 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${_SCRIPT_DIR}/../../.." && pwd)}"
 TORCH_ENV="${TORCH_ENV:-torch21}"
-MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-musicdiscovery310}"
+MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-torch21}"
 AUDIOBOX_ENV="${AUDIOBOX_ENV:-audiobox}"
 SPLITS="${SPLITS:-clean}"
 DATASET="${DATASET:-musiceval}"
 SKIP_TRANSFORMER="${SKIP_TRANSFORMER:-0}"
 SKIP_SAE="${SKIP_SAE:-0}"
+SKIP_AESTHETICS="${SKIP_AESTHETICS:-0}"
 
 cd "${PROJECT_ROOT}"
 export PYTHONPATH="${PROJECT_ROOT}:${PYTHONPATH:-}"
@@ -22,6 +23,9 @@ if [[ "${SKIP_TRANSFORMER}" == "1" ]]; then
 fi
 if [[ "${SKIP_SAE}" == "1" ]]; then
   EXTRA_ARGS+=(--skip-sae)
+fi
+if [[ "${SKIP_AESTHETICS}" == "1" ]]; then
+  EXTRA_ARGS+=(--no-with-aesthetics)
 fi
 conda run --no-capture-output -n "${TORCH_ENV}" python "phase7_release/scripts/run/run_musiceval_14_experiments.py" \
   --project-root "${PROJECT_ROOT}" \

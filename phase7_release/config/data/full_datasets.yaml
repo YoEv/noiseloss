@@ -13,7 +13,7 @@ execution:
     - "large_scale_single"
     - "large_scale_merged"
   prepare_splits: false
-  with_aesthetics: true
+  with_aesthetics: false
   skip_feature_extract: false
 
 datasets:

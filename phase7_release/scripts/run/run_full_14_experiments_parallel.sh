@@ -4,7 +4,7 @@ set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${_SCRIPT_DIR}/../../.." && pwd)}"
 TORCH_ENV="${TORCH_ENV:-torch21}"
-MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-musicdiscovery310}"
+MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-torch21}"
 AUDIOBOX_ENV="${AUDIOBOX_ENV:-audiobox}"
 SPLITS="${SPLITS:-clean}"
 

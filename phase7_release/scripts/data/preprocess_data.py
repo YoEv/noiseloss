@@ -13,7 +13,13 @@ import yaml
 
 def _load_cfg(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    if "project_root" not in cfg:
+        env_root = os.environ.get("PROJECT_ROOT", "")
+        if not env_root:
+            env_root = os.path.abspath(os.path.join(os.path.dirname(path), "../.."))
+        cfg["project_root"] = env_root
+    return cfg
 
 
 def _ensure_parent(path: str) -> None:
@@ -39,6 +45,9 @@ def _musiceval_copy_splits(cfg: dict, source_root: str) -> None:
             src = os.path.join(source_root, fname)
             dst_rel = target[mode][split]
             dst = dst_rel if os.path.isabs(dst_rel) else os.path.join(root, dst_rel)
+            if os.path.isfile(dst):
+                print(f"already exists, skipping: {dst}")
+                continue
             _copy_csv(src, dst)
             print(f"copied {src} -> {dst}")
 

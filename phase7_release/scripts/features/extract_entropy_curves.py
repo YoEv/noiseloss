@@ -9,6 +9,15 @@ import torch
 import torchaudio
 from tqdm import tqdm
 from transformers import MusicgenForConditionalGeneration
+from transformers.models.musicgen.modeling_musicgen import MusicgenSinusoidalPositionalEmbedding
+
+if not hasattr(MusicgenSinusoidalPositionalEmbedding, "_offset_patched"):
+    _orig_init = MusicgenSinusoidalPositionalEmbedding.__init__
+    def _patched_init(self, num_positions, embedding_dim):
+        self.offset = 2
+        _orig_init(self, num_positions, embedding_dim)
+    MusicgenSinusoidalPositionalEmbedding.__init__ = _patched_init
+    MusicgenSinusoidalPositionalEmbedding._offset_patched = True
 
 from phase7_release.lib.repro.data_paths import get_exp11_split_paths
 
@@ -16,6 +25,9 @@ NUM_CODEBOOKS = 4
 
 def _uid(token_loss_path: str) -> str:
     return hashlib.md5(token_loss_path.encode("utf-8")).hexdigest()[:16]
+
+
+MAX_AUDIO_SECONDS = 30  # cap to prevent OOM on long audio (seq_len=1500 @ 50tok/s)
 
 
 def _load_audio_mono_32k(audio_path: str, device: torch.device) -> torch.Tensor:
@@ -28,6 +40,9 @@ def _load_audio_mono_32k(audio_path: str, device: torch.device) -> torch.Tensor:
     if sr != 32000:
         wav = torchaudio.functional.resample(wav, sr, 32000)
     wav = wav.mean(dim=0, keepdim=True)
+    max_samples = int(MAX_AUDIO_SECONDS * 32000)
+    if wav.shape[-1] > max_samples:
+        wav = wav[..., :max_samples]
     return wav.to(device)
 
 

@@ -90,17 +90,29 @@ class HybridPrecomputedDataset(Dataset):
         if not sae_feature_dir:
             raise ValueError("sae_feature_dir is required")
         base_feat_dir = sae_feature_dir if os.path.isabs(sae_feature_dir) else os.path.join(data_root, sae_feature_dir)
-        npy_path = os.path.join(base_feat_dir, f"sae_features_{split}{sae_variant_suffix}.npy")
         meta_path = os.path.join(base_feat_dir, f"sae_features_{split}{sae_variant_suffix}_meta.pt")
-        if not os.path.isfile(npy_path) or not os.path.isfile(meta_path):
-            raise FileNotFoundError(f"Need {npy_path} and {meta_path}")
+        if not os.path.isfile(meta_path):
+            raise FileNotFoundError(f"Need {meta_path}")
         meta = torch.load(meta_path, map_location="cpu", weights_only=False)
         lengths = [int(x) for x in meta["lengths"]]
-        total_frames = int(sum(lengths))
         meta_hidden = int(meta.get("hidden_dim", self.sae_dim))
-        self._sae_memmap = self._open_sae_array(npy_path, total_frames=total_frames, hidden_dim=meta_hidden)
-        self.sae_dim = int(self._sae_memmap.shape[1])
-        self._sae_cum = np.concatenate([[0], np.cumsum(lengths)])
+
+        self._sae_mode = meta.get("mode", "monolithic")
+        if self._sae_mode == "sharded":
+            shard_dir = str(meta.get("shard_dir", os.path.join(base_feat_dir, split)))
+            self._shard_dir = shard_dir
+            self.sae_dim = meta_hidden
+            self._sae_memmap = None
+            self._sae_cum = None
+        else:
+            npy_path = os.path.join(base_feat_dir, f"sae_features_{split}{sae_variant_suffix}.npy")
+            if not os.path.isfile(npy_path):
+                raise FileNotFoundError(f"Need {npy_path}")
+            total_frames = int(sum(lengths))
+            self._sae_memmap = self._open_sae_array(npy_path, total_frames=total_frames, hidden_dim=meta_hidden)
+            self.sae_dim = int(self._sae_memmap.shape[1])
+            self._sae_cum = np.concatenate([[0], np.cumsum(lengths)])
+
         if len(self.df) != len(lengths):
             raise ValueError("CSV rows vs SAE lengths mismatch")
 
@@ -175,8 +187,15 @@ class HybridPrecomputedDataset(Dataset):
         else:
             stacked_curve = np.zeros((0, self.seq_len), dtype=np.float32)
 
-        start, end = int(self._sae_cum[idx]), int(self._sae_cum[idx + 1])
-        feat = np.array(self._sae_memmap[start:end], dtype=np.float32)
+        if self._sae_mode == "sharded":
+            shard_file = os.path.join(self._shard_dir, f"{idx:06d}.npy")
+            try:
+                feat = np.load(shard_file).astype(np.float32)
+            except Exception:
+                feat = np.zeros((1, self.sae_dim), dtype=np.float32)
+        else:
+            start, end = int(self._sae_cum[idx]), int(self._sae_cum[idx + 1])
+            feat = np.array(self._sae_memmap[start:end], dtype=np.float32)
         if feat.shape[0] >= self.seq_len:
             feat = feat[: self.seq_len]
         else:

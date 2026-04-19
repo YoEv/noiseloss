@@ -132,6 +132,7 @@ def _write_runtime_scoped_config(
         cfg["sae"]["output_dir"] = sae_out
     cfg.setdefault("data", {}).setdefault("feature_roots", {})["token_loss_root"] = features_loss
 
+    cfg["project_root"] = project_root
     runtime_cfg_dir = os.path.join(state_dir, "runtime_configs")
     os.makedirs(runtime_cfg_dir, exist_ok=True)
     runtime_cfg_path = os.path.join(runtime_cfg_dir, f"{run_tag}.yaml")
@@ -255,6 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Step name to force rerun (can be repeated), e.g. --rerun-step f02_entropy_only_cnn",
     )
+    parser.add_argument("--sae-world-size", type=int, default=1,
+                        help="Number of GPUs for parallel SAE feature extraction.")
+    parser.add_argument("--sae-gpu-ids", type=str, default="",
+                        help="Comma-separated GPU IDs for SAE extraction (default: 0..world_size-1).")
+    parser.add_argument("--sae-batch-size", type=int, default=16,
+                        help="Audio files per GPU forward pass during SAE extraction.")
     return parser
 
 
@@ -373,13 +380,16 @@ def main() -> int:
                 ],
             )
         )
+        _sae_extra = f'--world-size {args.sae_world_size} --batch-size {args.sae_batch_size}'
+        if args.sae_gpu_ids:
+            _sae_extra += f' --gpu-ids "{args.sae_gpu_ids}"'
         steps.append(
             Step(
                 "prep_sae_features",
                 [
-                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split train',
-                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split val',
-                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split test',
+                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split train {_sae_extra}',
+                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split val {_sae_extra}',
+                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split test {_sae_extra}',
                 ],
             )
         )
@@ -563,6 +573,10 @@ def main() -> int:
 
     env = os.environ.copy()
     env["PYTHONPATH"] = f'{project_root}:{env.get("PYTHONPATH", "")}'
+    # Ensure conda is on PATH for subprocess shells that invoke `conda run`.
+    _conda_bin = os.path.expanduser("~/miniconda3/bin")
+    if os.path.isdir(_conda_bin) and _conda_bin not in env.get("PATH", ""):
+        env["PATH"] = f'{_conda_bin}:{env.get("PATH", "")}'
     os.chdir(project_root)
 
     try:
