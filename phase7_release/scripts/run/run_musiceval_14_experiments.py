@@ -206,9 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loss-feature-mode", type=str, default="per_codebook", choices=["per_codebook", "avg"])
     parser.add_argument("--hybrid-num-workers", type=int, default=8)
     parser.add_argument("--hybrid-prefetch-factor", type=int, default=8)
-    parser.add_argument("--hybrid-cnn-batch-size", type=int, default=16)
-    parser.add_argument("--hybrid-cnn-sae-only-batch-size", type=int, default=32)
-    parser.add_argument("--hybrid-transformer-batch-size", type=int, default=12)
+    parser.add_argument("--hybrid-cnn-batch-size", type=int, default=64)  # 4x for multi-GPU
+    parser.add_argument("--hybrid-cnn-sae-only-batch-size", type=int, default=64)  # 2x for multi-GPU
+    parser.add_argument("--hybrid-transformer-batch-size", type=int, default=32)  # higher for multi-GPU
     parser.add_argument("--dataset", type=str, default="musiceval")
     parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
     parser.add_argument(
@@ -337,11 +337,17 @@ def main() -> int:
     os.makedirs(entropy_dir, exist_ok=True)
     os.makedirs(loss_dir, exist_ok=True)
 
-    split_cfg = cfg.get("data", {}).get("splits", {}).get(args.splits, {})
+    # Use full_splits/{dataset} for each dataset (not musiceval splits)
+    full_splits_dir = os.path.join(project_root, "phase7_release", "data", "full_splits", args.dataset)
     source_split_paths: Dict[str, str] = {}
     for split_name in ["train", "val", "test"]:
-        rel = split_cfg.get(split_name, "")
-        source_split_paths[split_name] = rel if os.path.isabs(rel) else os.path.join(project_root, rel)
+        split_path = os.path.join(full_splits_dir, f"{split_name}.csv")
+        if not os.path.isfile(split_path):
+            # Fallback to config splits if full_splits not available
+            split_cfg = cfg.get("data", {}).get("splits", {}).get(args.splits, {})
+            rel = split_cfg.get(split_name, "")
+            split_path = rel if os.path.isabs(rel) else os.path.join(project_root, rel)
+        source_split_paths[split_name] = split_path
 
     runtime_split_dir = os.path.join(state_dir, "runtime_splits", run_tag)
     os.makedirs(runtime_split_dir, exist_ok=True)

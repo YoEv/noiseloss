@@ -38,7 +38,7 @@ sae_hidden_dim: 16384
 sae:
   backend: "musicdiscovery"
   musicdiscovery_checkpoint_dir: "external/musicdiscovery_checkpoints/sae-4_k_32_layer_12/facebook/musicgen-small"
-  output_dir: "phase7_release/features/sae/musiceval"
+  output_dir: "phase7_release/features/sae"
 
 training:
   defaults:
