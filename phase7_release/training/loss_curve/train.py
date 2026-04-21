@@ -96,6 +96,12 @@ def main():
     in_ch = int(train_ds.output_channels)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = LossCurveCNN(input_channels=in_ch, sequence_length=MAX_LEN).to(device)
+
+    # Multi-GPU: DataParallel wrapper
+    if device.type == "cuda" and torch.cuda.device_count() > 1:
+        print(f"[multi-gpu] using {torch.cuda.device_count()} GPUs with DataParallel")
+        model = nn.DataParallel(model)
+
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(

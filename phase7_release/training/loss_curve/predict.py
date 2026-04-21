@@ -45,7 +45,20 @@ def main():
     ckpt = os.path.join(ckpt_dir, f"{args.run_name}_best.pth")
     if not os.path.exists(ckpt):
         raise FileNotFoundError(f"Missing checkpoint: {ckpt}")
-    model.load_state_dict(torch.load(ckpt, map_location=device))
+    state_dict = torch.load(ckpt, map_location=device)
+    # Handle DataParallel checkpoint keys: add or remove "module." prefix as needed
+    new_state_dict = {}
+    has_module_prefix = any(k.startswith("module.") for k in state_dict.keys())
+    is_dataparallel = hasattr(model, 'module')
+    
+    for k, v in state_dict.items():
+        if is_dataparallel and not has_module_prefix:
+            new_state_dict["module." + k] = v
+        elif has_module_prefix and not is_dataparallel:
+            new_state_dict[k[7:]] = v
+        else:
+            new_state_dict[k] = v
+    model.load_state_dict(new_state_dict)
     model.eval()
 
     preds = []

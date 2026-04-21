@@ -311,6 +311,12 @@ def main():
         model = SAEOnlyModel(sae_tower).to(device)
     else:
         model = HybridTwoTowerModel(LossCurveCNN(input_channels=train_ds.curve_channels), sae_tower).to(device)
+
+    # Multi-GPU: DataParallel wrapper
+    if device.type == "cuda" and torch.cuda.device_count() > 1:
+        print(f"[multi-gpu] using {torch.cuda.device_count()} GPUs with DataParallel")
+        model = nn.DataParallel(model)
+
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda"))
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -348,7 +354,22 @@ def main():
             break
     epoch_pbar.close()
 
-    model.load_state_dict(torch.load(ckpt_path, map_location=device))
+    state_dict = torch.load(ckpt_path, map_location=device)
+    # Handle DataParallel checkpoint keys: add or remove "module." prefix as needed
+    new_state_dict = {}
+    has_module_prefix = any(k.startswith("module.") for k in state_dict.keys())
+    is_dataparallel = hasattr(model, 'module')  # Check if model is wrapped
+    
+    for k, v in state_dict.items():
+        if is_dataparallel and not has_module_prefix:
+            # Model is DataParallel but checkpoint is not: add "module." prefix
+            new_state_dict["module." + k] = v
+        elif has_module_prefix and not is_dataparallel:
+            # Checkpoint has "module." but model is not: remove prefix
+            new_state_dict[k[7:]] = v
+        else:
+            new_state_dict[k] = v
+    model.load_state_dict(new_state_dict)
     test_loss, test_p, test_s, test_preds, test_scores = evaluate(model, test_loader, criterion, device)
     print(f"Test Loss {test_loss:.4f} | Test Pearson {test_p:.4f} | Test Spearman {test_s:.4f}")
     plt.figure(figsize=(8, 6))

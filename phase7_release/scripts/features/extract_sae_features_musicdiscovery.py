@@ -314,31 +314,38 @@ def main():
 
     # Resolve dataset CSV
     data_cfg = cfg.get("data", cfg)
-    manifests_dir = os.path.join(project_root, data_cfg.get("manifests_dir", "phase7_release/data/manifests"))
-    dataset_name = data_cfg.get("dataset_name", "musiceval")
-    csv_name = f"{dataset_name}_{splits_label}_{args.split}.csv"
-
-    # Try common search locations
-    candidates = [
-        os.path.join(manifests_dir, csv_name),
-        os.path.join(project_root, "phase7_release", "data", "full_splits", csv_name),
-        os.path.join(project_root, "phase7_release", "data", "musiceval_splits", csv_name),
-    ]
     csv_path = None
-    for c in candidates:
-        if os.path.isfile(c):
-            csv_path = c
-            break
+
+    # First: Try to get path from runtime config's data.splits
+    splits_cfg = data_cfg.get("splits", {})
+    if splits_label in splits_cfg and args.split in splits_cfg[splits_label]:
+        csv_path = splits_cfg[splits_label][args.split]
+        if os.path.isfile(csv_path):
+            print(f"[{args.split}] Using CSV from runtime config: {csv_path}")
+
     if csv_path is None:
-        # Fallback: use state runtime_splits if set
-        runtime_splits_dir = os.path.join(project_root, "phase7_release", "outputs",
-                                           "run_state", "runtime_splits")
-        rt_candidate = os.path.join(runtime_splits_dir, csv_name)
-        if os.path.isfile(rt_candidate):
-            csv_path = rt_candidate
+        manifests_dir = os.path.join(project_root, data_cfg.get("manifests_dir", "phase7_release/data/manifests"))
+        dataset_name = data_cfg.get("dataset_name", "musiceval")
+        csv_name = f"{dataset_name}_{splits_label}_{args.split}.csv"
+        candidates = [
+            os.path.join(manifests_dir, csv_name),
+            os.path.join(project_root, "phase7_release", "data", "full_splits", csv_name),
+            os.path.join(project_root, "phase7_release", "data", "musiceval_splits", csv_name),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                csv_path = c
+                break
+        if csv_path is None:
+            # Fallback: use state runtime_splits subdir (run_tag matching config key)
+            runtime_splits_dir = os.path.join(project_root, "phase7_release", "outputs",
+                                               "run_state", "runtime_splits")
+            rt_candidate = os.path.join(runtime_splits_dir, run_tag, f"{args.split}.csv")
+            if os.path.isfile(rt_candidate):
+                csv_path = rt_candidate
+
     if csv_path is None:
-        raise FileNotFoundError(f"Cannot find CSV for {dataset_name} {splits_label} {args.split}. "
-                                f"Tried: {candidates}")
+        raise FileNotFoundError(f"Cannot find CSV for {splits_label} {args.split}")
 
     df = pd.read_csv(csv_path)
     audio_col = "audio_path"
