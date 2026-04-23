@@ -51,7 +51,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--checkpoint", type=str, required=True)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     parser.add_argument("--entropy-manifest-csv", action="append", default=[])
     parser.add_argument("--segment-seconds", type=float, default=5.0)

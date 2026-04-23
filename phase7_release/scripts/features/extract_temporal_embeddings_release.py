@@ -27,7 +27,7 @@ from _shared import MAX_LEN, get_split_df, load_loss_curve, load_model, make_mod
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"])
     parser.add_argument("--run-name", type=str, default="loss_curve_cnn")
     parser.add_argument(

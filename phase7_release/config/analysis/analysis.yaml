@@ -3,8 +3,7 @@
 segment_scoring:
   enabled: true
   primary_model: "rnn"
-  optional_models:
-    - "transformer"
+  optional_models: []
   segment_seconds: 5
   hop_seconds: 2
 

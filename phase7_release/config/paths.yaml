@@ -11,10 +11,6 @@ data:
       train: "phase7_release/data/splits/musiceval/train.csv"
       val: "phase7_release/data/splits/musiceval/val.csv"
       test: "phase7_release/data/splits/musiceval/test.csv"
-    noisy:
-      train: "phase7_release/data/splits/musiceval/train_noisy.csv"
-      val: "phase7_release/data/splits/musiceval/val_noisy.csv"
-      test: "phase7_release/data/splits/musiceval/test_noisy.csv"
   feature_roots:
     token_loss_root: "phase7_release/features/token_loss"
     sae_feature_root: "phase7_release/features/sae"
@@ -60,39 +56,12 @@ training:
       lr_decay_factor: 0.5
       lr_decay_patience: 3
       min_lr: 1.0e-6
-    curve_transformer:
-      epochs: 100
-      batch_size: 32
-      lr: 0.0001
-      weight_decay: 0.0001
-      patience: 10
-      lr_decay_factor: 0.5
-      lr_decay_patience: 3
-      min_lr: 1.0e-6
     hybrid_cnn:
       epochs: 50
       batch_size: 8
       lr: 0.0001
       weight_decay: 0.0001
       patience: 8
-      lr_decay_factor: 0.5
-      lr_decay_patience: 3
-      min_lr: 1.0e-6
-    hybrid_transformer_pool:
-      epochs: 50
-      batch_size: 8
-      lr: 0.00005
-      weight_decay: 0.0001
-      patience: 10
-      lr_decay_factor: 0.5
-      lr_decay_patience: 3
-      min_lr: 1.0e-6
-    hybrid_transformer:
-      epochs: 50
-      batch_size: 8
-      lr: 0.0001
-      weight_decay: 0.0001
-      patience: 10
       lr_decay_factor: 0.5
       lr_decay_patience: 3
       min_lr: 1.0e-6

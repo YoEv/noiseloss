@@ -1,84 +1,176 @@
 #!/usr/bin/env python3
-"""Generate train/val/test splits for all pairwise datasets and SongEval."""
+"""Generate train/val/test splits for the pairwise datasets and SongEval.
+
+Reads the per-dataset pairwise manifest CSVs produced by
+``fit_pairwise_manifests.py`` (Elo scoring) plus SongEval's raw
+``metadata.jsonl`` (Musicality-only mean across the 4 annotators) and
+emits ``{train,val,test}.csv`` under ``phase7_release/data/full_splits/<name>/``.
+
+Columns written to each split CSV
+---------------------------------
+Always present::
+
+    score, audio_path, token_loss_path
+
+Per-dataset extras (passed through so that the feature extractors can honour
+the rater-aligned audio window):
+
+- AIME          : ``begin_s``, ``end_s``  (10-second survey window per track)
+- Music Arena   : ``begin_s``, ``end_s``  (0..listen_sec_used)
+
+SongEval and MusicPref write only the base three columns; extractors use
+the full audio file (SongEval = whole song; MusicPref = 30-second clip).
+
+Noisy splits (``*_noisy.csv``) are **not** emitted.  The ``noisy`` family
+has been removed from phase7_release.
+"""
+from __future__ import annotations
+
 import json
 import os
 import sys
+from pathlib import Path
+from typing import List, Sequence
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
 
 
-def make_splits(df, out_dir):
+DEFAULT_COLS: Sequence[str] = ("score", "audio_path", "token_loss_path")
+
+
+def make_splits(
+    df: pd.DataFrame,
+    out_dir: str | os.PathLike,
+    *,
+    extra_cols: Sequence[str] = (),
+    seed: int = 42,
+    train_frac: float = 0.8,
+    val_frac: float = 0.1,
+) -> None:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    cols = ["score", "audio_path", "token_loss_path"]
+    cols: List[str] = list(DEFAULT_COLS) + [c for c in extra_cols if c not in DEFAULT_COLS]
+
     before = len(df)
-    df = df[df["audio_path"].map(os.path.exists)].reset_index(drop=True)
+    df = df[df["audio_path"].astype(str).map(os.path.exists)].reset_index(drop=True)
     print(f"  {out_dir.name}: {len(df)}/{before} rows with existing audio")
-    rng = np.random.default_rng(42)
+    if len(df) == 0:
+        print(f"  {out_dir.name}: nothing to write (all audio_path missing on disk).")
+        return
+
+    rng = np.random.default_rng(seed)
     perm = rng.permutation(len(df))
-    n_tr = int(0.8 * len(df))
-    n_va = int(0.1 * len(df))
+    n_tr = int(train_frac * len(df))
+    n_va = int(val_frac * len(df))
     splits = {
         "train": df.iloc[perm[:n_tr]],
-        "val": df.iloc[perm[n_tr:n_tr + n_va]],
-        "test": df.iloc[perm[n_tr + n_va:]],
+        "val":   df.iloc[perm[n_tr:n_tr + n_va]],
+        "test":  df.iloc[perm[n_tr + n_va:]],
     }
     for k, part in splits.items():
         part[cols].to_csv(out_dir / f"{k}.csv", index=False)
-        part[cols].to_csv(out_dir / f"{k}_noisy.csv", index=False)
         print(f"    {k}: {len(part)}")
 
 
-def main():
-    # AIME: average music_quality + text_audio_alignment
-    mq = pd.read_csv("phase7_release/data/manifests/pairwise_relu/aime_music_quality_1to5.csv")
-    ta = pd.read_csv("phase7_release/data/manifests/pairwise_relu/aime_text_audio_alignment_1to5.csv")
-    aime = pd.DataFrame({
-        "score": (mq["score_1to5"].values + ta["score_1to5"].values) / 2,
+def _abs(p: str) -> str:
+    return os.path.abspath(p)
+
+
+def _build_aime() -> pd.DataFrame:
+    mq = pd.read_csv(
+        "phase7_release/data/manifests/pairwise_relu/aime_music_quality_1to5.csv"
+    )
+    # Scoring is music_quality only; text_audio_alignment was removed.
+    return pd.DataFrame({
+        "score": mq["score_1to5"].astype(float).values,
         "audio_path": mq["track_id"].map(
-            lambda x: os.path.abspath(f"phase7_release/datasets/aime/audio/AIME2025_{x}.wav")
+            lambda x: _abs(f"phase7_release/datasets/aime/audio/AIME2025_{x}.wav")
         ),
         "token_loss_path": mq["track_id"].map(lambda x: f"aime/AIME2025_{x}"),
+        "begin_s": mq["begin_s"].astype(float).values,
+        "end_s":   mq["end_s"].astype(float).values,
     })
-    make_splits(aime, "phase7_release/data/full_splits/aime")
 
-    # MusicPref: average musicality + fidelity
-    mu = pd.read_csv("phase7_release/data/manifests/pairwise_relu/musicpref_musicality_1to5.csv")
-    fi = pd.read_csv("phase7_release/data/manifests/pairwise_relu/musicpref_fidelity_1to5.csv")
-    mp = pd.DataFrame({
-        "score": (mu["score_1to5"].values + fi["score_1to5"].values) / 2,
-        "audio_path": mu["audio_path"].map(os.path.abspath),
+
+def _build_musicpref() -> pd.DataFrame:
+    mu = pd.read_csv(
+        "phase7_release/data/manifests/pairwise_relu/musicpref_musicality_1to5.csv"
+    )
+    mu = mu[mu["audio_path"].astype(str) != ""].reset_index(drop=True)
+    return pd.DataFrame({
+        "score": mu["score_1to5"].astype(float).values,
+        "audio_path": mu["audio_path"].map(_abs),
         "token_loss_path": mu["filename"].map(lambda x: f"musicpref/{x}"),
     })
-    make_splits(mp, "phase7_release/data/full_splits/musicpref")
 
-    # MusicArena
-    ma = pd.read_csv("phase7_release/data/manifests/pairwise_relu/musicarena_1to5.csv")
-    ma_df = pd.DataFrame({
-        "score": ma["score_1to5"].values,
-        "audio_path": ma["audio_path"].map(os.path.abspath),
+
+def _build_musicarena() -> pd.DataFrame:
+    ma = pd.read_csv(
+        "phase7_release/data/manifests/pairwise_relu/musicarena_1to5.csv"
+    )
+    return pd.DataFrame({
+        "score": ma["score_1to5"].astype(float).values,
+        "audio_path": ma["audio_path"].map(_abs),
         "token_loss_path": ma["audio_path"].map(lambda p: f"music_arena/{Path(p).stem}"),
+        "begin_s": np.zeros(len(ma), dtype=float),
+        "end_s":   ma["listen_sec_used"].astype(float).values,
     })
-    make_splits(ma_df, "phase7_release/data/full_splits/music_arena")
 
-    # SongEval: mean of 5 dims across all annotators
+
+def _build_songeval() -> pd.DataFrame:
+    """SongEval score = mean of the 4 annotators' **Musicality** rating.
+
+    SongEval rates full songs (105-361 s, median ~214 s), so the audio
+    path points at the full WAV on disk; chunking/pooling happens inside
+    the feature extractors (see ``extract_entropy_curves.py`` /
+    ``extract_sae_features_musicdiscovery.py`` ``--chunk-sec`` /
+    ``--pool-to-frames``).
+    """
     rows = []
     with open("phase7_release/raw_hf/SongEval/metadata.jsonl") as f:
         for line in f:
             r = json.loads(line)
             fname = Path(r["file_name"]).stem
-            dims = [
-                a[k]
-                for a in r["annotation"]
-                for k in ["Coherence", "Musicality", "Memorability", "Clarity", "Naturalness"]
-            ]
+            raters = r.get("annotation", [])
+            mus = [float(a["Musicality"]) for a in raters if "Musicality" in a]
+            if not mus:
+                continue
             rows.append({
-                "score": sum(dims) / len(dims),
-                "audio_path": os.path.abspath(f"phase7_release/datasets/songeval/audio/{fname}.wav"),
+                "score": sum(mus) / len(mus),
+                "audio_path": _abs(f"phase7_release/datasets/songeval/audio/{fname}.wav"),
                 "token_loss_path": f"songeval/{fname}",
             })
-    make_splits(pd.DataFrame(rows), "phase7_release/data/full_splits/songeval")
+    return pd.DataFrame(rows)
+
+
+def main() -> None:
+    # Sanity: all pairwise manifests must be present.
+    for rel in (
+        "phase7_release/data/manifests/pairwise_relu/aime_music_quality_1to5.csv",
+        "phase7_release/data/manifests/pairwise_relu/musicpref_musicality_1to5.csv",
+        "phase7_release/data/manifests/pairwise_relu/musicarena_1to5.csv",
+    ):
+        if not Path(rel).is_file():
+            print(
+                f"missing {rel}; run fit_pairwise_manifests.py first.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    aime = _build_aime()
+    make_splits(aime, "phase7_release/data/full_splits/aime",
+                extra_cols=("begin_s", "end_s"))
+
+    mp = _build_musicpref()
+    make_splits(mp, "phase7_release/data/full_splits/musicpref")
+
+    ma = _build_musicarena()
+    make_splits(ma, "phase7_release/data/full_splits/music_arena",
+                extra_cols=("begin_s", "end_s"))
+
+    se = _build_songeval()
+    make_splits(se, "phase7_release/data/full_splits/songeval")
 
     print("Done.")
 

@@ -179,7 +179,6 @@ PY
 ```text
 phase7_release/data/full_splits/{musicpref,aime,songeval,music_arena,all_5_datasets}/
   train.csv  val.csv  test.csv
-  train_noisy.csv  val_noisy.csv  test_noisy.csv
 ```
 
 每个 CSV 需包含 `score, audio_path, token_loss_path`。用下面的 helper 补齐并按 80/10/10 切分（`seed=42`）：
@@ -212,7 +211,6 @@ splits = {"train": df.iloc[perm[:n_tr]], "val": df.iloc[perm[n_tr:n_tr+n_va]], "
 cols = ["score", "audio_path", "token_loss_path"]
 for k, part in splits.items():
     part[cols].to_csv(out_dir / f"{k}.csv", index=False)
-    part[cols].to_csv(out_dir / f"{k}_noisy.csv", index=False)  # noisy 版暂与 clean 相同
     print(k, len(part))
 PY
 ```
@@ -228,7 +226,7 @@ conda run -n torch21 python - <<'PY'
 import pandas as pd
 from pathlib import Path
 names = ["musicpref", "aime", "songeval", "music_arena", "musiceval"]
-splits = ["train", "val", "test", "train_noisy", "val_noisy", "test_noisy"]
+splits = ["train", "val", "test"]
 out = Path("phase7_release/data/full_splits/all_5_datasets")
 out.mkdir(parents=True, exist_ok=True)
 for s in splits:
@@ -250,7 +248,7 @@ PY
 ```bash
 # split 文件齐全且非空
 for d in musicpref aime songeval music_arena all_5_datasets; do
-  for s in train val test train_noisy val_noisy test_noisy; do
+  for s in train val test; do
     f="phase7_release/data/full_splits/$d/$s.csv"
     [[ -s "$f" ]] && echo "ok  $f" || echo "MISSING $f"
   done

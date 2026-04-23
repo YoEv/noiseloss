@@ -149,7 +149,7 @@ def _plot_one_audio(
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
-    ap.add_argument("--splits", default="clean", choices=["clean", "noisy"])
+    ap.add_argument("--splits", default="clean", choices=["clean"])
     ap.add_argument("--reports-dir", default="")
     ap.add_argument("--tokens-per-second", type=float, default=100.0)
     ap.add_argument("--experiments", action="append", default=[])

@@ -39,7 +39,6 @@ for split, fname in mapping.items():
     if missing:
         print(f"WARNING {split}: {missing}/{len(df)} audio files missing")
     df.to_csv(OUT_DIR / f"{split}.csv", index=False)
-    df.to_csv(OUT_DIR / f"{split}_noisy.csv", index=False)
     print(f"{split}: {len(df)} rows")
 
 print("Done.")

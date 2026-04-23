@@ -13,12 +13,14 @@
 
 | 范围 | 数据集 | 入口脚本 | 实验数 |
 |---|---|---|---|
-| 小规模闸门 | MusicEval | `run_musiceval_14_experiments.sh` | 14 |
-| 大规模单库 | musicpref / aime / songeval / music_arena | `run_full_14_experiments_parallel.sh` | 4 × 14 = 56 |
-| 大规模合库 | `all_5_datasets` | `run_full_14_experiments_parallel.sh` | 14 |
+| 小规模闸门 | MusicEval | `run_musiceval_14_experiments.sh` | 7 |
+| 大规模单库 | musicpref / aime / songeval / music_arena | `run_full_14_experiments_parallel.sh` | 4 × 7 = 28 |
+| 大规模合库 | `all_5_datasets` | `run_full_14_experiments_parallel.sh` | 7 |
 | Segment 分析 | 复用 MusicEval 权重 | `run_segment_rnn_analysis.sh` | 1 RNN |
 
-每次按 `--splits clean` 和 `--splits noisy` 各跑一遍，得到两套 label 版本。
+- Backbone 固定为 `cnn`（Transformer 已移除）。
+- Split 固定为 `clean`（noisy 已移除）。
+- 脚本 / 汇总表文件名沿用 `14_experiments`，不做重命名。
 
 ## PROJECT_ROOT 解析
 
@@ -61,16 +63,14 @@ bash phase7_release/scripts/run/download_hf_datasets.sh
 
 # 6. 小规模闸门（Phase B）
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
-bash phase7_release/scripts/run/run_musiceval_14_experiments.sh --splits noisy
 
 # 7. Segment 分析（Phase C，可选）
 bash phase7_release/scripts/run/run_segment_rnn_analysis.sh
 
 # 8. 大规模（Phase D，前置：data/full_splits/ 已生成）
-bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits clean
-bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits noisy
+bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh
 ```
 
 产出主表：
-- 小规模：`outputs/reports/musiceval/<splits>/eval_14_experiments_summary_<splits>.csv`
-- 大规模：`outputs/full/reports/<dataset>/<splits>/eval_14_experiments_summary_<splits>.csv`
+- 小规模：`outputs/reports/musiceval/clean/eval_14_experiments_summary_clean.csv`
+- 大规模：`outputs/full/reports/<dataset>/clean/eval_14_experiments_summary_clean.csv`

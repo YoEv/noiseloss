@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--run-name", type=str, default="loss_curve_cnn")
     parser.add_argument("--entropy-manifest-csv", action="append", default=None)
     parser.add_argument("--output-csv", type=str, required=True)

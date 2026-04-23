@@ -8,28 +8,23 @@ from phase7_release.lib.repro.metrics import plot_scatter, safe_pearson_spearman
 
 
 def expected_experiments(split_tag: str) -> List[str]:
+    # CNN-only pipeline: 7 experiment families x {cnn} per split.
+    # (Transformer variants were removed.)
     return [
         f"f01_loss_only_cnn_{split_tag}",
-        f"f01_loss_only_transformer_{split_tag}",
         f"f02_entropy_only_cnn_{split_tag}",
-        f"f02_entropy_only_transformer_{split_tag}",
         f"f03_sae_only_cnn_{split_tag}",
-        f"f03_sae_only_transformer_{split_tag}",
         f"f04_loss_entropy_cnn_{split_tag}",
-        f"f04_loss_entropy_transformer_{split_tag}",
         f"f05_entropy_sae_cnn_{split_tag}",
-        f"f05_entropy_sae_transformer_{split_tag}",
         f"f06_loss_sae_cnn_{split_tag}",
-        f"f06_loss_sae_transformer_{split_tag}",
         f"f07_loss_entropy_sae_cnn_{split_tag}",
-        f"f07_loss_entropy_sae_transformer_{split_tag}",
     ]
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--reports-dir", type=str, default="phase7_release/outputs/reports")
-    parser.add_argument("--split-tag", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--split-tag", type=str, default="clean", choices=["clean"])
     args = parser.parse_args()
 
     os.makedirs(args.reports_dir, exist_ok=True)

@@ -1,7 +1,9 @@
-# Central index: 7 feature families × 2 backbones = 14 runs per dataset track.
+# Central index: 7 feature families x 1 backbone (CNN) = 7 runs per dataset track.
 # Paths are relative to phase7_release/config/
+#
+# NOTE: Transformer backbones were removed; only CNN backbones remain.
 
-version: 1
+version: 2
 
 families:
   - id: f01
@@ -26,61 +28,38 @@ families:
     name: loss_entropy_sae
     description: "Loss + entropy + SAE (full hybrid)"
 
-backbones: [cnn, transformer]
+backbones: [cnn]
 
-# Per (family, backbone) → model + training config paths
 matrix:
   f01:
     cnn:
       model: model/experiments/f01_loss_only/cnn.yaml
       training: training/experiments/f01_loss_only/cnn.yaml
-    transformer:
-      model: model/experiments/f01_loss_only/transformer.yaml
-      training: training/experiments/f01_loss_only/transformer.yaml
   f02:
     cnn:
       model: model/experiments/f02_entropy_only/cnn.yaml
       training: training/experiments/f02_entropy_only/cnn.yaml
-    transformer:
-      model: model/experiments/f02_entropy_only/transformer.yaml
-      training: training/experiments/f02_entropy_only/transformer.yaml
   f03:
     cnn:
       model: model/experiments/f03_sae_only/cnn.yaml
       training: training/experiments/f03_sae_only/cnn.yaml
-    transformer:
-      model: model/experiments/f03_sae_only/transformer.yaml
-      training: training/experiments/f03_sae_only/transformer.yaml
   f04:
     cnn:
       model: model/experiments/f04_loss_entropy/cnn.yaml
       training: training/experiments/f04_loss_entropy/cnn.yaml
-    transformer:
-      model: model/experiments/f04_loss_entropy/transformer.yaml
-      training: training/experiments/f04_loss_entropy/transformer.yaml
   f05:
     cnn:
       model: model/experiments/f05_entropy_sae/cnn.yaml
       training: training/experiments/f05_entropy_sae/cnn.yaml
-    transformer:
-      model: model/experiments/f05_entropy_sae/transformer.yaml
-      training: training/experiments/f05_entropy_sae/transformer.yaml
   f06:
     cnn:
       model: model/experiments/f06_loss_sae/cnn.yaml
       training: training/experiments/f06_loss_sae/cnn.yaml
-    transformer:
-      model: model/experiments/f06_loss_sae/transformer.yaml
-      training: training/experiments/f06_loss_sae/transformer.yaml
   f07:
     cnn:
       model: model/experiments/f07_loss_entropy_sae/cnn.yaml
       training: training/experiments/f07_loss_entropy_sae/cnn.yaml
-    transformer:
-      model: model/experiments/f07_loss_entropy_sae/transformer.yaml
-      training: training/experiments/f07_loss_entropy_sae/transformer.yaml
 
-# Auxiliary (not part of the 7×2 matrix)
 auxiliary:
   sae_sparse_training:
     model: model/sae_sparse_autoencoder.yaml

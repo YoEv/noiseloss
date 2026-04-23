@@ -138,7 +138,7 @@ def _evaluate(model, loader, device):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--input-mode", type=str, default="loss", choices=["loss", "loss_entropy"])
     parser.add_argument("--entropy-manifest-csv", action="append", default=[])
     parser.add_argument("--segment-steps", type=int, default=500)

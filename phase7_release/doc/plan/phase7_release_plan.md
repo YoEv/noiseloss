@@ -22,7 +22,7 @@
 
 ## 2) 实验矩阵（固定）
 
-每个数据范围都跑 7 个特征组合，每个组合跑 `CNN` 与 `Transformer` 两个骨干：
+每个数据范围都跑 7 个特征组合，骨干固定为 `CNN`，数据 split 固定为 `clean`：
 
 1. Loss Curve
 2. Entropy Curve
@@ -34,11 +34,13 @@
 
 即：
 
-- 每个数据范围 = `7 x 2 = 14` 个实验；
-- 小规模（MusicEval）= 14；
-- 大规模单库（5 库）= `5 x 14 = 70`；
-- 大规模合库 = 14；
-- 全阶段总计 = 98 个主实验。
+- 每个数据范围 = `7` 个实验；
+- 小规模（MusicEval）= 7；
+- 大规模单库（5 库）= `5 x 7 = 35`；
+- 大规模合库 = 7；
+- 全阶段总计 = 49 个主实验。
+
+> Transformer 骨干与 `noisy` split 已从 release 中完全移除；仅保留 `LossCurveCNN` 一个骨干、`clean` 一个 split variant。
 
 ---
 
@@ -66,16 +68,22 @@
 
 ## 3.3 标签统一与重标定
 
-对仅有 `win/lose/tie` 的库（如 MusicPref/AIME/MusicArena）：
+对仅有 `win/lose/tie/both_bad` 的库（MusicPref / AIME / MusicArena），统一使用
+`phase7_release/lib/elo_scoring.py` 中的 Elo 拟合，再按各库规则映射到 1-5 分
+（单列 `score`）。具体规则：
 
-- 用 Bradley-Terry 生成 `score_bt_1to5`；
-- 用 MSE-based mapping 生成 `score_mse_1to5`；
-- 两列均保留（含小数），训练时显式选择标签列。
+- **MusicPref**：`musicality`-only Elo。不使用 fidelity、对齐等其它轴。
+- **AIME**：12 对 Music Quality 的系统 Elo 叠加 `logit(Laplace-smoothed winrate)`
+  残差，并记录每条样本的 10 秒 survey 窗口（`begin_s`/`end_s`）。
+- **MusicArena**：系统 Elo + 上下文软目标（`alpha=0.5`，`system_span=50`），
+  四种 outcome 一起考虑（`BOTH_BAD` 严格低于 `TIE`），按 rater 对齐的音频片段
+  （最多 180 秒）训练。
 
-对原生标量分数据（如 MusicEval/SongEval）：
+对原生标量分数据：
 
-- 原分保留，不强制覆盖；
-- 允许在分析侧与 BT/MSE 做跨方案比较。
+- **MusicEval**：打分与特征均保持不动。
+- **SongEval**：仅使用 4 位打分者的 `Musicality` 平均值，按全曲分块 + 均匀池化到
+  1500 帧的 feature 形状。
 
 ## 3.4 Manifest 规范（核心契约）
 
@@ -84,13 +92,14 @@
 - `source`
 - `audio_path`
 - `token_loss_path`
-- `score_bt_1to5`
-- `score_mse_1to5`
+- `score`（单列 1-5）
 
 按需扩展：
 
+- `begin_s`/`end_s`（AIME / MusicArena 的 rater 窗口）
+- `listen_sec_used`
 - `entropy_curve_path`
-- `sae_feature_path` 或 split 级 SAE 文件索引
+- `sae_feature_path`
 - `length`
 - `split`
 
@@ -136,12 +145,11 @@ SAE 提取统一使用 `musicdiscovery` 的 MusicGen-small 方案：
 
 ## 5.2 运行标识体系
 
-每次实验建议统一四元标识：
+每次实验建议统一三元标识：
 
 - `family`（f01~f07）
-- `backbone`（cnn/transformer）
+- `backbone`（固定 `cnn`）
 - `dataset_scope`（musiceval / single_db / merged_5db）
-- `label_variant`（bt / mse / native）
 
 用于日志目录、checkpoint 命名、汇总表主键。
 
@@ -153,7 +161,7 @@ SAE 提取统一使用 `musicdiscovery` 的 MusicGen-small 方案：
 
 基于已训练打分模型，新增片段级评分实验：
 
-- 模型：RNN（主线）+ Transformer（对照）；
+- 模型：RNN；
 - 输入：测试集切片段（滑窗）；
 - 输出：每首曲子的 segment score curve；
 - 对齐：与同曲 loss/entropy 曲线做时序关联。
@@ -189,20 +197,20 @@ SAE 提取统一使用 `musicdiscovery` 的 MusicGen-small 方案：
 
 ### Phase B — 小规模闸门（MusicEval）
 
-1. 跑完整 14 实验；
+1. 跑完整 7 个 CNN 实验；
 2. 验证训练、评估、日志、汇总链路；
 3. 跑片段评分与基础可解释性分析。
 
-通过条件：14 实验可复现、指标可汇总、分析脚本可跑通。
+通过条件：7 个实验可复现、指标可汇总、分析脚本可跑通。
 
 ### Phase C — 大规模单库（5 库）
 
-每库跑 14 实验，形成库内最佳组合与库间差异比较。  
+每库跑 7 个 CNN 实验，形成库内最佳组合与库间差异比较。  
 执行方式：在 server 上先做 GPU 探测，然后使用并发调度（8xH100 对应最多 8 并发任务，受可用卡与阈值控制）。
 
 ### Phase D — 大规模合库（5 库融合）
 
-在 source-aware split 下跑 14 实验，评估跨库泛化与稳健性。  
+在 source-aware split 下跑 7 个 CNN 实验，评估跨库泛化与稳健性。  
 执行方式：复用同一 GPU 并发调度器，和单库任务共享卡池。
 
 ### Phase E — 汇总发布
@@ -214,21 +222,21 @@ SAE 提取统一使用 `musicdiscovery` 的 MusicGen-small 方案：
 ## 8) 交付物
 
 1. 本计划文档（系统设计版）
-2. 完整实验矩阵配置（7x2）
-3. 数据预处理与标签双缩放（BT/MSE）流水线
+2. 完整实验矩阵配置（7 × cnn × clean）
+3. 数据预处理与 Elo / 原生标量分打分流水线
 4. `external/musicdiscovery` 接入与版本锁定
 5. 小规模 + 大规模（单库/合库）结果与分析报告
-6. `doc/plan/experiment_code_map.md`（14 实验与脚本的一一映射）
+6. `doc/plan/experiment_code_map.md`（7 实验与脚本的一一映射）
 
 ---
 
 ## 9) 质量闸门（必须满足）
 
 - 同一实验在不同机器可重复启动（路径契约一致）；
-- BT 与 MSE 标签均可训练、可评估、可汇总；
+- 单列 `score`（Elo-1to5 或原生）可训练、可评估、可汇总；
 - 片段评分曲线可生成且可对齐 loss/entropy；
 - SAE 聚类解释能回溯到样本与片段；
-- 所有结果可由四元标识唯一定位。
+- 所有结果可由 `family × backbone × dataset_scope` 三元唯一定位。
 
 ---
 
@@ -242,9 +250,10 @@ SAE 提取统一使用 `musicdiscovery` 的 MusicGen-small 方案：
    - 若 `torch21` 已是 Python>=3.10，则直接在 `torch21` 安装；
    - 这是所有 SAE 与 exp13 训练前置步骤。
 2. `run_musiceval_14_experiments.sh`
-   - 串行执行 MusicEval 的 14 个主实验（7 组合 x CNN/Transformer）；
+   - 串行执行 MusicEval 的 7 个主实验（7 组合 × CNN）；
    - 每个实验步骤显示 `tqdm` 时间进度条（按秒更新，含累计耗时）；
-   - 自动执行统一评估，输出每个实验的散点图与 Pearson/Spearman 汇总表。
+   - 自动执行统一评估，输出每个实验的散点图与 Pearson/Spearman 汇总表；
+   - 注意：脚本 / 目录 / 汇总表文件名沿用 `14_experiments`，不做重命名，只是实际步骤减到 7 个。
 3. `run_segment_rnn_analysis.sh`
    - 基于 train/val 训练 segment-level RNN；
    - 对 test 输出曲线化打分结果（每段预测分）；
@@ -269,19 +278,14 @@ PROJECT_ROOT="<your_path>" TORCH_ENV=torch21 \
 bash phase7_release/scripts/run/setup_sae_musicdiscovery.sh
 ```
 
-### 10.2 MusicEval 14实验统一运行
+### 10.2 MusicEval 统一运行（7 个 CNN 实验）
 
 ```bash
 cd "${PROJECT_ROOT}"
 bash phase7_release/scripts/run/run_musiceval_14_experiments.sh
 ```
 
-noisy 标签版：
-
-```bash
-cd "${PROJECT_ROOT}"
-bash phase7_release/scripts/run/run_musiceval_14_experiments.sh --splits noisy
-```
+仅支持 `--splits clean`（默认）；noisy 分支已移除。
 
 ### 10.3 Segment-level RNN 分析链路
 
@@ -303,8 +307,10 @@ bash phase7_release/scripts/run/run_segment_rnn_analysis.sh --with-entropy
 
 ```bash
 cd "${PROJECT_ROOT}"
-bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits clean
+bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh
 ```
+
+`--splits` 参数只接受 `clean`（默认）。
 
 关键点：
 
@@ -317,8 +323,8 @@ bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits cle
 
 ## 11) 脚本内聚化重构（全部放在 phase7_release）
 
-目标：`run_musiceval_14_experiments.sh` 统一执行 14 个实验并自动评估。  
-原则：保留 exp12/exp13 训练细节与默认超参，仅把核心逻辑迁移到 `phase7_release`。
+目标：`run_musiceval_14_experiments.sh` 统一执行 7 个 CNN 实验并自动评估。  
+原则：保留 exp12/exp13 训练细节与默认超参，仅把核心逻辑迁移到 `phase7_release`；文件名沿用 `14_experiments`，不做重命名。
 
 ### 11.1 目录结构（执行版）
 
@@ -326,11 +332,14 @@ bash phase7_release/scripts/run/run_full_14_experiments_parallel.sh --splits cle
 phase7_release/
   lib/
     repro/
-      data_paths.py        # split 与路径解析（clean/noisy）
+      data_paths.py        # split 与路径解析（clean）
       loss_dataset.py      # Loss curve 2/3 通道 dataset
-      nets.py              # LossCurveCNN / Transformer / CNN->Transformer
+      nets.py              # LossCurveCNN（唯一骨干）
       metrics.py           # Pearson/Spearman + scatter
       scaling.py           # affine / quantile rescale
+      elo_scoring.py       # Elo 拟合工具（MusicPref / AIME / MusicArena）
+      audio_window.py      # rater 对齐裁剪 + 分块 + 均匀池化的共享工具
+
 
   scripts/
     baseline/
@@ -351,17 +360,12 @@ phase7_release/
     loss_curve/
       train.py             # exp12 step3 训练
       predict.py           # exp12 step3 test 推理
-    curve_transformer/
-      train.py             # loss/entropy/loss+entropy transformer 训练
-      predict.py           # 对应 transformer 推理
     entropy_curve/
       train.py             # entropy-only cnn 训练
       predict.py           # entropy-only cnn 推理
     hybrid/
       dataset.py           # exp13 HybridPrecomputedDataset
-      train_cnn.py         # exp13 hybrid cnn
-      train_transformer_pool.py  # exp13 cnn->transformer
-      train_transformer.py       # exp13 long transformer（可选）
+      train_cnn.py         # exp13 hybrid cnn（f03/f05/f06/f07）
   analysis/
     segment/
       train_rnn.py         # segment-level rnn 训练
@@ -373,15 +377,15 @@ phase7_release/
 `run_musiceval_14_experiments.sh` 固定按下列顺序调用：
 
 1. 特征提取（SAE + entropy，可按参数跳过）
-2. 14 个主实验（7 组合 x CNN/Transformer）
-3. `scripts/eval/eval_14_experiments.py`（统一散点图 + Pearson/Spearman 汇总）
+2. 7 个主实验（7 组合 × CNN）
+3. `scripts/eval/eval_14_experiments.py`（统一散点图 + Pearson/Spearman 汇总，文件名沿用 `14_experiments`）
 
 `run_segment_rnn_analysis.sh` 固定按下列顺序调用：
 
 1. `analysis/segment/train_rnn.py`
 2. `analysis/segment/predict_curves.py`
 
-`run_musiceval_14_experiments.sh` 固定在 14 个实验完成后调用：
+`run_musiceval_14_experiments.sh` 固定在 7 个实验完成后调用：
 
 1. `scripts/eval/eval_14_experiments.py`
    - 逐实验输出相关性散点图；
@@ -390,6 +394,6 @@ phase7_release/
 ### 11.3 兼容与验收
 
 - `phase7_release/scripts/run/run_musiceval_14_experiments.sh` 中不得出现 `experiments/phase7/.../*.py` 调用。
-- 同一命令行参数语义保持与 exp12/exp13 一致（如 `--splits`, `--run-name`, `--use_noisy_splits`）。
+- 同一命令行参数语义保持与 exp12/exp13 一致（如 `--splits`, `--run-name`）；`--use_noisy_splits` / `--skip-transformer` 已移除。
 - 迁移后以 MusicEval 小规模链路做一次端到端 smoke 验收。
-- 训练关键参数（epoch、patience、lr、weight_decay、lr_decay_factor、lr_decay_patience、min_lr）统一记录在 `config/paths.yaml` 的 `training.defaults`。
+- 训练关键参数（epoch、patience、lr、weight_decay、lr_decay_factor、lr_decay_patience、min_lr）统一记录在 `config/paths.yaml` 的 `training.defaults`（仅 CNN 两类：`loss_curve` / `hybrid_cnn`）。

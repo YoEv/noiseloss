@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--entropy-manifest-csv", action="append", required=True)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--run-name", type=str, default="entropy_curve_cnn")
     parser.add_argument("--output-csv", type=str, required=True)
     args = parser.parse_args()

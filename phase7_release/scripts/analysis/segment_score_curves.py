@@ -19,32 +19,25 @@ from phase7_release.lib.repro.curve_channels import (
 )
 from phase7_release.lib.repro.data_paths import get_exp11_split_paths, resolve_project_root
 from phase7_release.lib.repro.metrics import safe_pearson_spearman
-from phase7_release.lib.repro.nets import LossCurveCNN, TransformerEncoderRegressor
+from phase7_release.lib.repro.nets import LossCurveCNN
 
 
 @dataclass
 class LoadedModel:
     model: torch.nn.Module
-    architecture: str  # cnn or transformer
+    architecture: str  # "cnn" (transformer was removed)
     mode: str  # loss | entropy | loss_entropy
 
 
 def expected_experiments(split_tag: str) -> List[str]:
     return [
         f"f01_loss_only_cnn_{split_tag}",
-        f"f01_loss_only_transformer_{split_tag}",
         f"f02_entropy_only_cnn_{split_tag}",
-        f"f02_entropy_only_transformer_{split_tag}",
         f"f03_sae_only_cnn_{split_tag}",
-        f"f03_sae_only_transformer_{split_tag}",
         f"f04_loss_entropy_cnn_{split_tag}",
-        f"f04_loss_entropy_transformer_{split_tag}",
         f"f05_entropy_sae_cnn_{split_tag}",
-        f"f05_entropy_sae_transformer_{split_tag}",
         f"f06_loss_sae_cnn_{split_tag}",
-        f"f06_loss_sae_transformer_{split_tag}",
         f"f07_loss_entropy_sae_cnn_{split_tag}",
-        f"f07_loss_entropy_sae_transformer_{split_tag}",
     ]
 
 
@@ -59,10 +52,8 @@ def _mode_for_experiment(exp_name: str) -> Optional[str]:
 
 
 def _arch_for_experiment(exp_name: str) -> Optional[str]:
-    if exp_name.endswith("_cnn_clean") or exp_name.endswith("_cnn_noisy"):
+    if exp_name.endswith("_cnn_clean"):
         return "cnn"
-    if exp_name.endswith("_transformer_clean") or exp_name.endswith("_transformer_noisy"):
-        return "transformer"
     return None
 
 
@@ -141,12 +132,9 @@ def _load_model(exp_name: str, ckpt_dir: str, device: torch.device, seq_len: int
         "entropy": NUM_CODEBOOKS + 1,
         "loss_entropy": NUM_CODEBOOKS * 2 + 1,
     }[mode]
-    if arch == "cnn":
-        model = LossCurveCNN(input_channels=in_ch, sequence_length=seq_len).to(device)
-    else:
-        model = TransformerEncoderRegressor(
-            seq_len=seq_len, d_in=in_ch, d_model=256, nhead=8, num_layers=4, dim_feedforward=512, dropout=0.1, pool="mean"
-        ).to(device)
+    if arch != "cnn":
+        return None, "transformer_backbone_removed"
+    model = LossCurveCNN(input_channels=in_ch, sequence_length=seq_len).to(device)
     state = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(state)
     model.eval()
@@ -155,11 +143,7 @@ def _load_model(exp_name: str, ckpt_dir: str, device: torch.device, seq_len: int
 
 def _predict_one(loaded: LoadedModel, feat_cl: np.ndarray, device: torch.device) -> float:
     with torch.no_grad():
-        x = torch.from_numpy(feat_cl).float()
-        if loaded.architecture == "cnn":
-            x = x.unsqueeze(0).to(device)  # [1, C, L]
-        else:
-            x = x.transpose(0, 1).unsqueeze(0).to(device)  # [1, L, C]
+        x = torch.from_numpy(feat_cl).float().unsqueeze(0).to(device)  # [1, C, L]
         y = loaded.model(x)
         return float(y.detach().cpu().view(-1)[0].item())
 
@@ -167,7 +151,7 @@ def _predict_one(loaded: LoadedModel, feat_cl: np.ndarray, device: torch.device)
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
-    parser.add_argument("--splits", default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", default="clean", choices=["clean"])
     parser.add_argument("--experiments", action="append", default=[])
     parser.add_argument("--window-seconds", default="2,5", help="Comma-separated, e.g. 2,5")
     parser.add_argument("--hop-seconds", default="", help="Comma-separated or empty (=window)")

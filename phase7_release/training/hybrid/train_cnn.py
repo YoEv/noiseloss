@@ -179,7 +179,6 @@ def main():
     parser.add_argument("--min-lr", type=float, default=None)
     parser.add_argument("--run_name", type=str, default="cnn")
     parser.add_argument("--sae_suffix", type=str, default="")
-    parser.add_argument("--use_noisy_splits", action="store_true")
     parser.add_argument("--curve-mode", type=str, default="loss", choices=["loss", "entropy", "loss_entropy", "none"])
     parser.add_argument("--entropy-manifest-csv", action="append", default=None)
     parser.add_argument("--num-workers", type=int, default=max(2, min(8, os.cpu_count() or 4)))
@@ -204,7 +203,7 @@ def main():
     min_lr = float(args.min_lr if args.min_lr is not None else tcfg.get("min_lr", 1e-6))
     data_cfg = cfg.get("data", {})
     feature_roots = data_cfg.get("feature_roots", {})
-    split_paths = get_exp11_split_paths(args.config, splits="noisy" if args.use_noisy_splits else "clean")
+    split_paths = get_exp11_split_paths(args.config, splits="clean")
     sae_feature_dir = cfg.get("sae", {}).get("output_dir", feature_roots.get("sae_feature_root", "phase7_release/features/sae"))
     token_loss_root = feature_roots.get("token_loss_root", "")
     seq_len = cfg.get("seq_len", 1500)
@@ -292,8 +291,6 @@ def main():
         # When fully single-process loading, pinning large host tensors often hurts more than helps.
         loader_kwargs["pin_memory"] = False
     run_tag = args.run_name
-    if args.use_noisy_splits and (not run_tag.endswith("_noisy")):
-        run_tag = f"{run_tag}_noisy"
     train_loader = DataLoader(train_ds, shuffle=True, **loader_kwargs)
     val_loader = DataLoader(val_ds, shuffle=False, **loader_kwargs)
     test_loader = DataLoader(test_ds, shuffle=False, **loader_kwargs)

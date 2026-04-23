@@ -64,7 +64,7 @@ def main():
     parser.add_argument("--lr-decay-factor", type=float, default=None)
     parser.add_argument("--lr-decay-patience", type=int, default=None)
     parser.add_argument("--min-lr", type=float, default=None)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--run-name", type=str, default="entropy_curve_cnn")
     args = parser.parse_args()
 

@@ -118,7 +118,7 @@ def _segment_state_features(seg_row: pd.Series, clip_states: pd.DataFrame) -> Di
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
-    ap.add_argument("--splits", default="clean", choices=["clean", "noisy"])
+    ap.add_argument("--splits", default="clean", choices=["clean"])
     ap.add_argument("--reports-dir", default="")
     ap.add_argument("--segment-window-seconds", type=int, default=5, choices=[1, 2, 5])
     ap.add_argument("--token-window", type=int, default=5)

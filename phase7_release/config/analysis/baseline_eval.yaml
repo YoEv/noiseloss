@@ -2,4 +2,4 @@
 methods:
   - "quantile_map"
   - "linear_regression"
-label_mode: "both"  # clean | noisy | both
+label_mode: "clean"

@@ -7,10 +7,6 @@ This folder stores lightweight manifests and documentation for release usage.
 - `manifests/train.csv`
 - `manifests/val.csv`
 - `manifests/test.csv`
-- Optional noisy labels:
-  - `manifests/train_noisy.csv`
-  - `manifests/val_noisy.csv`
-  - `manifests/test_noisy.csv`
 
 ## Required columns
 

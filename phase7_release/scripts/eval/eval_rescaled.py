@@ -11,12 +11,11 @@ AXES = ["CE", "CU", "PC", "PQ"]
 
 
 def _build_pred_paths(root: str, label_mode: str):
-    suffix = "_noisy" if label_mode == "noisy" else ""
     return {
-        "aesthetics_val": os.path.join(root, f"aesthetics_scores_val{suffix}.csv"),
-        "aesthetics_test": os.path.join(root, f"aesthetics_scores_test{suffix}.csv"),
-        "mean_loss_val": os.path.join(root, f"mean_loss_val{suffix}.csv"),
-        "mean_loss_test": os.path.join(root, f"mean_loss_test{suffix}.csv"),
+        "aesthetics_val": os.path.join(root, "aesthetics_scores_val.csv"),
+        "aesthetics_test": os.path.join(root, "aesthetics_scores_test.csv"),
+        "mean_loss_val": os.path.join(root, "mean_loss_val.csv"),
+        "mean_loss_test": os.path.join(root, "mean_loss_test.csv"),
     }
 
 
@@ -25,7 +24,7 @@ def main():
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--methods", type=str, nargs="+", default=list(RESCALE_METHODS.keys()))
-    parser.add_argument("--label_mode", type=str, default="both", choices=["clean", "noisy", "both"])
+    parser.add_argument("--label_mode", type=str, default="clean", choices=["clean"])
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -33,7 +32,7 @@ def main():
     table_dir = os.path.join(args.out_dir, "tables")
     os.makedirs(plot_dir, exist_ok=True)
     os.makedirs(table_dir, exist_ok=True)
-    label_modes = ["clean", "noisy"] if args.label_mode == "both" else [args.label_mode]
+    label_modes = [args.label_mode]
 
     for label_mode in label_modes:
         pred_paths = _build_pred_paths(args.out_dir, label_mode)

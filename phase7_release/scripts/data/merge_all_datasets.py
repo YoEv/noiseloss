@@ -4,7 +4,7 @@ import pandas as pd
 from pathlib import Path
 
 names = ["musicpref", "aime", "songeval", "music_arena", "musiceval"]
-splits = ["train", "val", "test", "train_noisy", "val_noisy", "test_noisy"]
+splits = ["train", "val", "test"]
 out = Path("phase7_release/data/full_splits/all_5_datasets")
 out.mkdir(parents=True, exist_ok=True)
 

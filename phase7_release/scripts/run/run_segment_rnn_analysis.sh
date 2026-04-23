@@ -12,17 +12,13 @@ SPLITS_FLAG="clean"
 INPUT_MODE="loss"
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --use-noisy)
-      SPLITS_FLAG="noisy"
-      shift
-      ;;
     --with-entropy)
       INPUT_MODE="loss_entropy"
       shift
       ;;
     *)
       echo "[error] unknown arg: $1" >&2
-      echo "usage: $0 [--use-noisy] [--with-entropy]" >&2
+      echo "usage: $0 [--with-entropy]" >&2
       exit 1
       ;;
   esac

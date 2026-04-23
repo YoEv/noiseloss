@@ -208,9 +208,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hybrid-prefetch-factor", type=int, default=8)
     parser.add_argument("--hybrid-cnn-batch-size", type=int, default=64)  # 4x for multi-GPU
     parser.add_argument("--hybrid-cnn-sae-only-batch-size", type=int, default=64)  # 2x for multi-GPU
-    parser.add_argument("--hybrid-transformer-batch-size", type=int, default=32)  # higher for multi-GPU
     parser.add_argument("--dataset", type=str, default="musiceval")
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
+    parser.add_argument(
+        "--extract-chunk-sec",
+        type=float,
+        default=0.0,
+        help="Per-dataset: process each audio in non-overlapping windows of "
+             "this many seconds (used by entropy/loss/SAE extractors).",
+    )
+    parser.add_argument(
+        "--extract-pool-to-frames",
+        type=int,
+        default=0,
+        help="Per-dataset: uniformly mean-pool concatenated per-clip features "
+             "to this many frames along time (used with --extract-chunk-sec).",
+    )
+    parser.add_argument(
+        "--extract-max-audio-sec",
+        type=float,
+        default=0.0,
+        help="Per-dataset: cap each audio's duration in seconds (0 = unlimited).",
+    )
     parser.add_argument(
         "--prepare-splits",
         action=argparse.BooleanOptionalAction,
@@ -223,12 +242,6 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Skip SAE feature extraction and all SAE-involved experiments.",
-    )
-    parser.add_argument(
-        "--skip-transformer",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Skip all transformer model steps (train+predict together).",
     )
     parser.add_argument("--with-aesthetics", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
@@ -279,25 +292,12 @@ def main() -> int:
         os.remove(state_file)
 
     state = _load_state(state_file)
-    transformer_step_names = {
-        "f01_loss_only_transformer",
-        "f02_entropy_only_transformer",
-        "f03_sae_only_transformer",
-        "f04_loss_entropy_transformer",
-        "f05_entropy_sae_transformer",
-        "f06_loss_sae_transformer",
-        "f07_loss_entropy_sae_transformer",
-    }
     sae_step_names = {
         "prep_sae_features",
         "f03_sae_only_cnn",
-        "f03_sae_only_transformer",
         "f05_entropy_sae_cnn",
-        "f05_entropy_sae_transformer",
         "f06_loss_sae_cnn",
-        "f06_loss_sae_transformer",
         "f07_loss_entropy_sae_cnn",
-        "f07_loss_entropy_sae_transformer",
     }
     state.update(
         {
@@ -363,7 +363,16 @@ def main() -> int:
         f'--entropy-manifest-csv "{entropy_dir}/entropy_manifest_val.csv" '
         f'--entropy-manifest-csv "{entropy_dir}/entropy_manifest_test.csv"'
     )
-    noisy_flag = "--use_noisy_splits" if args.splits == "noisy" else ""
+
+    # Per-dataset extraction flags propagated to every feature extractor.
+    extract_window_flags = ""
+    if args.extract_chunk_sec > 0:
+        extract_window_flags += f" --chunk-sec {args.extract_chunk_sec}"
+    if args.extract_pool_to_frames > 0:
+        extract_window_flags += f" --pool-to-frames {args.extract_pool_to_frames}"
+    if args.extract_max_audio_sec > 0:
+        extract_window_flags += f" --max-audio-sec {args.extract_max_audio_sec}"
+    extract_window_flags = extract_window_flags.strip()
 
     steps: List[Step] = []
     if args.prepare_splits:
@@ -380,9 +389,9 @@ def main() -> int:
             Step(
                 "prep_loss_features",
                 [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_loss_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split train --mode "{args.loss_feature_mode}" --source-split-csv "{source_split_paths["train"]}" --output-split-csv "{runtime_split_paths["train"]}" --manifest-csv "{loss_dir}/loss_manifest_train.csv" --out-dir "{loss_dir}"',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_loss_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split val --mode "{args.loss_feature_mode}" --source-split-csv "{source_split_paths["val"]}" --output-split-csv "{runtime_split_paths["val"]}" --manifest-csv "{loss_dir}/loss_manifest_val.csv" --out-dir "{loss_dir}"',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_loss_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split test --mode "{args.loss_feature_mode}" --source-split-csv "{source_split_paths["test"]}" --output-split-csv "{runtime_split_paths["test"]}" --manifest-csv "{loss_dir}/loss_manifest_test.csv" --out-dir "{loss_dir}"',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_loss_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split train --mode "{args.loss_feature_mode}" --source-split-csv "{source_split_paths["train"]}" --output-split-csv "{runtime_split_paths["train"]}" --manifest-csv "{loss_dir}/loss_manifest_train.csv" --out-dir "{loss_dir}" {extract_window_flags}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_loss_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split val --mode "{args.loss_feature_mode}" --source-split-csv "{source_split_paths["val"]}" --output-split-csv "{runtime_split_paths["val"]}" --manifest-csv "{loss_dir}/loss_manifest_val.csv" --out-dir "{loss_dir}" {extract_window_flags}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_loss_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split test --mode "{args.loss_feature_mode}" --source-split-csv "{source_split_paths["test"]}" --output-split-csv "{runtime_split_paths["test"]}" --manifest-csv "{loss_dir}/loss_manifest_test.csv" --out-dir "{loss_dir}" {extract_window_flags}',
                 ],
             )
         )
@@ -393,9 +402,9 @@ def main() -> int:
             Step(
                 "prep_sae_features",
                 [
-                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split train {_sae_extra}',
-                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split val {_sae_extra}',
-                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split test {_sae_extra}',
+                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split train {_sae_extra} {extract_window_flags}',
+                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split val {_sae_extra} {extract_window_flags}',
+                    f'conda run -n "{args.musicdiscovery_env}" python "phase7_release/scripts/features/extract_sae_features.py" --config "{release_cfg}" --splits "{args.splits}" --split test {_sae_extra} {extract_window_flags}',
                 ],
             )
         )
@@ -403,9 +412,9 @@ def main() -> int:
             Step(
                 "prep_entropy_features",
                 [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_entropy_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split train --out-dir "{entropy_dir}"',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_entropy_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split val --out-dir "{entropy_dir}"',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_entropy_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split test --out-dir "{entropy_dir}"',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_entropy_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split train --out-dir "{entropy_dir}" {extract_window_flags}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_entropy_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split val --out-dir "{entropy_dir}" {extract_window_flags}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/scripts/features/extract_entropy_curves.py" --config "{release_cfg}" --splits "{args.splits}" --split test --out-dir "{entropy_dir}" {extract_window_flags}',
                 ],
             )
         )
@@ -446,13 +455,6 @@ def main() -> int:
                 ],
             ),
             Step(
-                "f01_loss_only_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/curve_transformer/train.py" --config "{release_cfg}" --mode loss --splits "{args.splits}" --run-name "f01_loss_only_transformer_{args.splits}"',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/curve_transformer/predict.py" --config "{release_cfg}" --mode loss --splits "{args.splits}" --run-name "f01_loss_only_transformer_{args.splits}" --output-csv "{reports_dir}/f01_loss_only_transformer_{args.splits}_test_scores.csv"',
-                ],
-            ),
-            Step(
                 "f02_entropy_only_cnn",
                 [
                     f'conda run -n "{args.torch_env}" python "phase7_release/training/entropy_curve/train.py" --config "{release_cfg}" --splits "{args.splits}" --run-name "f02_entropy_only_cnn_{args.splits}" {entropy_args}',
@@ -460,22 +462,9 @@ def main() -> int:
                 ],
             ),
             Step(
-                "f02_entropy_only_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/curve_transformer/train.py" --config "{release_cfg}" --mode entropy --splits "{args.splits}" --run-name "f02_entropy_only_transformer_{args.splits}" {entropy_args}',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/curve_transformer/predict.py" --config "{release_cfg}" --mode entropy --splits "{args.splits}" --run-name "f02_entropy_only_transformer_{args.splits}" {entropy_args} --output-csv "{reports_dir}/f02_entropy_only_transformer_{args.splits}_test_scores.csv"',
-                ],
-            ),
-            Step(
                 "f03_sae_only_cnn",
                 [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f03_sae_only_cnn_{args.splits}" --curve-mode none --batch_size {args.hybrid_cnn_sae_only_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {noisy_flag}',
-                ],
-            ),
-            Step(
-                "f03_sae_only_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_transformer_pool.py" --config "{release_cfg}" --run_name "f03_sae_only_transformer_{args.splits}" --curve-mode none --batch_size {args.hybrid_transformer_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {noisy_flag}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f03_sae_only_cnn_{args.splits}" --curve-mode none --batch_size {args.hybrid_cnn_sae_only_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor}',
                 ],
             ),
             Step(
@@ -486,46 +475,21 @@ def main() -> int:
                 ],
             ),
             Step(
-                "f04_loss_entropy_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/curve_transformer/train.py" --config "{release_cfg}" --mode loss_entropy --splits "{args.splits}" --run-name "f04_loss_entropy_transformer_{args.splits}" {entropy_args}',
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/curve_transformer/predict.py" --config "{release_cfg}" --mode loss_entropy --splits "{args.splits}" --run-name "f04_loss_entropy_transformer_{args.splits}" {entropy_args} --output-csv "{reports_dir}/f04_loss_entropy_transformer_{args.splits}_test_scores.csv"',
-                ],
-            ),
-            Step(
                 "f05_entropy_sae_cnn",
                 [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f05_entropy_sae_cnn_{args.splits}" --curve-mode entropy --batch_size {args.hybrid_cnn_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {entropy_args} {noisy_flag}',
-                ],
-            ),
-            Step(
-                "f05_entropy_sae_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_transformer_pool.py" --config "{release_cfg}" --run_name "f05_entropy_sae_transformer_{args.splits}" --curve-mode entropy --batch_size {args.hybrid_transformer_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {entropy_args} {noisy_flag}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f05_entropy_sae_cnn_{args.splits}" --curve-mode entropy --batch_size {args.hybrid_cnn_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {entropy_args}',
                 ],
             ),
             Step(
                 "f06_loss_sae_cnn",
                 [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f06_loss_sae_cnn_{args.splits}" --curve-mode loss --batch_size {args.hybrid_cnn_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {noisy_flag}',
-                ],
-            ),
-            Step(
-                "f06_loss_sae_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_transformer_pool.py" --config "{release_cfg}" --run_name "f06_loss_sae_transformer_{args.splits}" --curve-mode loss --batch_size {args.hybrid_transformer_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {noisy_flag}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f06_loss_sae_cnn_{args.splits}" --curve-mode loss --batch_size {args.hybrid_cnn_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor}',
                 ],
             ),
             Step(
                 "f07_loss_entropy_sae_cnn",
                 [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f07_loss_entropy_sae_cnn_{args.splits}" --curve-mode loss_entropy --batch_size {args.hybrid_cnn_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {entropy_args} {noisy_flag}',
-                ],
-            ),
-            Step(
-                "f07_loss_entropy_sae_transformer",
-                [
-                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_transformer_pool.py" --config "{release_cfg}" --run_name "f07_loss_entropy_sae_transformer_{args.splits}" --curve-mode loss_entropy --batch_size {args.hybrid_transformer_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {entropy_args} {noisy_flag}',
+                    f'conda run -n "{args.torch_env}" python "phase7_release/training/hybrid/train_cnn.py" --config "{release_cfg}" --run_name "f07_loss_entropy_sae_cnn_{args.splits}" --curve-mode loss_entropy --batch_size {args.hybrid_cnn_batch_size} --num-workers {args.hybrid_num_workers} --prefetch-factor {args.hybrid_prefetch_factor} {entropy_args}',
                 ],
             ),
             Step(
@@ -536,22 +500,6 @@ def main() -> int:
             ),
         ]
     )
-    if args.skip_transformer and args.resume:
-        changed = 0
-        for name in transformer_step_names:
-            st = state.setdefault("steps", {}).get(name)
-            if not st:
-                continue
-            if st.get("status") != "completed":
-                st["status"] = "skipped"
-                st["skipped_at"] = _now_iso()
-                st["skip_reason"] = "skip_transformer_enabled"
-                changed += 1
-        if changed > 0:
-            state["updated_at"] = _now_iso()
-            _save_state(state_file, state)
-            print(f"[skip-transformer] marked {changed} transformer step states as skipped in resume state.")
-
     if args.skip_sae and args.resume:
         changed = 0
         for name in sae_step_names:
@@ -568,10 +516,6 @@ def main() -> int:
             _save_state(state_file, state)
             print(f"[skip-sae] marked {changed} SAE-related step states as skipped in resume state.")
 
-    if args.skip_transformer:
-        before = len(steps)
-        steps = [s for s in steps if s.name not in transformer_step_names]
-        print(f"[skip-transformer] removed {before - len(steps)} transformer steps (train+predict pairs).")
     if args.skip_sae:
         before = len(steps)
         steps = [s for s in steps if s.name not in sae_step_names]

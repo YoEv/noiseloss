@@ -19,12 +19,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
     split_map = load_exp11_splits(args.config, splits=args.splits)
-    suffix = "_noisy" if args.splits == "noisy" else ""
+    suffix = ""
 
     for split_name, df in split_map.items():
         means = []

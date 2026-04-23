@@ -1,15 +1,23 @@
+"""Launcher that forwards flags to ``extract_sae_features_musicdiscovery.py``.
+
+Adds transparent pass-through for the rater-aligned / chunked / pooled
+window flags introduced for AIME, Music Arena and SongEval.  When these
+flags are left at their defaults the behaviour is identical to the
+pre-existing MusicEval extraction path.
+"""
+from __future__ import annotations
+
 import argparse
 import os
 import subprocess
 import sys
-import time
+
+import yaml
+
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS_DIR = os.path.dirname(THIS_DIR)
 sys.path.insert(0, SCRIPTS_DIR)
-
-import torch
-import yaml
 
 
 def main() -> int:
@@ -19,9 +27,8 @@ def main() -> int:
         type=str,
         default=os.path.join(os.path.dirname(SCRIPTS_DIR), "config", "paths.yaml"),
     )
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     parser.add_argument("--split", type=str, required=True, choices=["train", "val", "test"])
-    # New args forwarded to musicdiscovery extractor
     parser.add_argument("--mode", type=str, default="sharded", choices=["sharded", "monolithic"])
     parser.add_argument("--max-seq-len", type=int, default=1500)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -30,6 +37,14 @@ def main() -> int:
     parser.add_argument("--gpu-ids", type=str, default="",
                         help="Comma-separated GPU IDs to use (e.g. '0,1,2,3'). "
                              "Defaults to 0..world_size-1.")
+    parser.add_argument("--chunk-sec", type=float, default=0.0,
+                        help="If > 0, each audio is processed in non-overlapping "
+                             "windows of this many seconds (needed for long songs).")
+    parser.add_argument("--pool-to-frames", type=int, default=0,
+                        help="Uniformly mean-pool concatenated SAE features to this "
+                             "many frames along time (0 = no pooling).")
+    parser.add_argument("--max-audio-sec", type=float, default=0.0,
+                        help="Cap audio duration in seconds (0 = unlimited).")
     known = parser.parse_args()
 
     with open(known.config, "r", encoding="utf-8") as f:
@@ -40,6 +55,7 @@ def main() -> int:
             env_root = os.path.abspath(os.path.join(os.path.dirname(known.config), "../.."))
         cfg["project_root"] = env_root
     project_root = cfg["project_root"]
+
     sae_cfg = cfg.get("sae", {})
     backend = sae_cfg.get("backend", "musicdiscovery")
     if backend != "musicdiscovery":
@@ -49,7 +65,8 @@ def main() -> int:
     checkpoint_dir = sae_cfg.get("musicdiscovery_checkpoint_dir", "")
     if not checkpoint_dir:
         raise ValueError("Missing sae.musicdiscovery_checkpoint_dir in config/paths.yaml")
-    checkpoint_dir = checkpoint_dir if os.path.isabs(checkpoint_dir) else os.path.join(project_root, checkpoint_dir)
+    checkpoint_dir = (checkpoint_dir if os.path.isabs(checkpoint_dir)
+                      else os.path.join(project_root, checkpoint_dir))
     required = ["cfg.json", "sae_weights.safetensors", "sparsity.safetensors"]
     missing = [f for f in required if not os.path.isfile(os.path.join(checkpoint_dir, f))]
     if missing:
@@ -60,7 +77,6 @@ def main() -> int:
     output_dir = sae_cfg.get("output_dir", "phase7_release/features/sae")
     output_dir = output_dir if os.path.isabs(output_dir) else os.path.join(project_root, output_dir)
 
-    # Resolve GPU IDs
     if known.gpu_ids:
         gpu_ids = [g.strip() for g in known.gpu_ids.split(",") if g.strip()]
     else:
@@ -84,6 +100,9 @@ def main() -> int:
         "--max-seq-len", str(known.max_seq_len),
         "--batch-size", str(known.batch_size),
         "--world-size", str(known.world_size),
+        "--chunk-sec", str(known.chunk_sec),
+        "--pool-to-frames", str(known.pool_to_frames),
+        "--max-audio-sec", str(known.max_audio_sec),
     ]
 
     if known.world_size == 1:
@@ -92,7 +111,6 @@ def main() -> int:
         result = subprocess.run(base_cmd + ["--rank", "0"], check=False, env=env)
         return int(result.returncode)
 
-    # Multi-GPU: spawn one process per rank
     procs = []
     for rank in range(known.world_size):
         env = dict(env_base)
@@ -101,7 +119,6 @@ def main() -> int:
         print(f"[spawn] rank={rank} GPU={gpu_ids[rank]} {' '.join(cmd[-4:])}")
         procs.append(subprocess.Popen(cmd, env=env))
 
-    # Wait for all ranks
     failed = []
     for rank, proc in enumerate(procs):
         rc = proc.wait()

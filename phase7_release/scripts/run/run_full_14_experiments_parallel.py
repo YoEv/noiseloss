@@ -21,6 +21,7 @@ class Job:
     scope: str
     config_path: str
     log_path: str
+    extract_flags: Dict[str, float]
 
 
 @dataclass
@@ -97,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--torch-env", type=str, default="torch21")
     p.add_argument("--musicdiscovery-env", type=str, default="musicdiscovery310")
     p.add_argument("--audiobox-env", type=str, default="audiobox")
-    p.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    p.add_argument("--splits", type=str, default="clean", choices=["clean"])
     p.add_argument("--dry-run", action="store_true")
     return p
 
@@ -131,10 +132,6 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
                 "val": split_cfg["val"],
                 "test": split_cfg["test"],
             }
-            # Keep clean/noisy pair complete for downstream scripts.
-            other_tag = "noisy" if split_tag == "clean" else "clean"
-            if other_tag in entry.get("splits", {}):
-                merged["data"]["splits"][other_tag] = entry["splits"][other_tag]
 
             out_root_rel = os.path.join("phase7_release", "outputs", "full")
             merged["outputs"] = {
@@ -155,7 +152,16 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
             cfg_path = os.path.join(generated_cfg_root, f"{scope}_{name}_{split_tag}.yaml")
             _save_yaml(cfg_path, merged)
             log_path = os.path.join(logs_root, f"{scope}_{name}_{split_tag}.log")
-            jobs.append(Job(name=name, scope=scope, config_path=cfg_path, log_path=log_path))
+            ef = entry.get("extract_flags", {}) or {}
+            extract_flags: Dict[str, float] = {
+                "chunk_sec": float(ef.get("chunk_sec", 0.0) or 0.0),
+                "pool_to_frames": int(ef.get("pool_to_frames", 0) or 0),
+                "max_audio_sec": float(ef.get("max_audio_sec", 0.0) or 0.0),
+            }
+            jobs.append(Job(
+                name=name, scope=scope, config_path=cfg_path, log_path=log_path,
+                extract_flags=extract_flags,
+            ))
     return jobs
 
 
@@ -265,6 +271,14 @@ def main() -> int:
                     cmd.append("--no-with-aesthetics")
                 if full_cfg_obj.get("execution", {}).get("skip_feature_extract", False):
                     cmd.append("--skip-feature-extract")
+                # Pass-through per-dataset extraction window/chunk/pool flags.
+                ef = job.extract_flags
+                if ef.get("chunk_sec", 0.0) > 0:
+                    cmd += ["--extract-chunk-sec", str(ef["chunk_sec"])]
+                if int(ef.get("pool_to_frames", 0)) > 0:
+                    cmd += ["--extract-pool-to-frames", str(int(ef["pool_to_frames"]))]
+                if ef.get("max_audio_sec", 0.0) > 0:
+                    cmd += ["--extract-max-audio-sec", str(ef["max_audio_sec"])]
 
                 env = os.environ.copy()
                 env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)

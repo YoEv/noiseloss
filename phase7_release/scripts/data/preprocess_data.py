@@ -36,10 +36,7 @@ def _copy_csv(src: str, dst: str) -> None:
 def _musiceval_copy_splits(cfg: dict, source_root: str) -> None:
     root = cfg["project_root"]
     target = cfg["data"]["splits"]
-    mapping = {
-        "clean": {"train": "train.csv", "val": "val.csv", "test": "test.csv"},
-        "noisy": {"train": "train_noisy.csv", "val": "val_noisy.csv", "test": "test_noisy.csv"},
-    }
+    mapping = {"clean": {"train": "train.csv", "val": "val.csv", "test": "test.csv"}}
     for mode, names in mapping.items():
         for split, fname in names.items():
             src = os.path.join(source_root, fname)
@@ -181,7 +178,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p1 = sub.add_parser("musiceval-copy-splits", help="Copy existing MusicEval split CSVs into phase7_release/data/splits.")
-    p1.add_argument("--source-root", default="", help="Directory containing train/val/test + *_noisy.csv")
+    p1.add_argument("--source-root", default="", help="Directory containing train/val/test CSVs.")
 
     p2 = sub.add_parser("pairwise-scale-and-split", help="For full datasets: map pairwise labels to 1-5 and split.")
     p2.add_argument("--pairwise-csv", required=True)

@@ -12,6 +12,7 @@ phase7_release/datasets/
 phase7_release/data/splits/
 phase7_release/data/full_splits/
 phase7_release/data/manifests/
+phase7_local4server/
 
 # --- Tabular / serialized data files ----------------------------------------
 *.csv

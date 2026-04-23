@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--ckpt", type=str, default=None)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--out-dir", type=str, required=True)
-    parser.add_argument("--splits", type=str, default="clean", choices=["clean", "noisy"])
+    parser.add_argument("--splits", type=str, default="clean", choices=["clean"])
     args = parser.parse_args()
 
     from phase7_release.lib.repro.data_paths import detect_project_root
@@ -30,7 +30,7 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     predictor = AesPredictor(checkpoint_pth=args.ckpt, data_col="path")
     split_map = load_exp11_splits(args.config, splits=args.splits)
-    suffix = "_noisy" if args.splits == "noisy" else ""
+    suffix = ""
 
     for split_name, df in split_map.items():
         rows = [{"path": p} for p in df["audio_path"].tolist()]
