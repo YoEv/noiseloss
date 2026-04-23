@@ -204,6 +204,9 @@ AIME / MusicPref / MusicArena 在这三个目录下的旧特征在本次迭代�
 > **一键入口**：`phase7_release/scripts/run/1st_iter.sh`
 > 内部按 §6.2.1 → §6.2.4 顺序依次执行；支持 `--skip-{clean,scoring,singles,merged}` 和 `--dry-run`。
 > overlay 写到 `phase7_release/outputs/run_state/1st_iter/full_datasets_{single,merged}.yaml`，**不改** `config/data/full_datasets.yaml`。
+>
+> **AIME 音频文件名修复（方案 B）已从 1st iter 中剥离**，单独由
+> `phase7_release/scripts/run/2nd_iter.sh` 负责；见本文 §7。
 
 ### 6.2.1 Step-0 清旧产物（本地 / server 皆可；只清不生成）
 
@@ -331,3 +334,63 @@ done
 这步代码补丁没在阶段 A 里包含，建议在阶段 A 7 步完成后、阶段 B 之前单独做；复杂度 < 30 行改动。
 
 ---
+
+## 7. 2nd iter —— AIME 音频文件名修复（方案 B）
+
+> **一键入口**：`phase7_release/scripts/run/2nd_iter.sh`
+> 仅在 1st iter 完成后、server 上观察到 AIME 相关性卡在 ~0.3 时执行。
+> 只改 AIME + `all_5_datasets` 的产物，其余 4 个库（musicpref / musicarena / songeval / musiceval）**不触碰**。
+
+### 7.1 Bug 根因
+
+- 老版 `phase7_release/scripts/data/hf_ingest_smoke.py` 用 `row_index` 命名 WAV：`AIME2025_0.wav`, `AIME2025_1.wav`, ...。
+- `phase7_release/scripts/data/aime_join_survey.py` 用 HF `track_1_id` / `track_2_id`（整数，5 位 zfill 成 `"05331"`）作为 track 键；`fit_pairwise_manifests.py` 的 AIME manifest 因此以 `track_id` 串号。
+- `gen_full_splits.py::_build_aime` 读 manifest 时 pandas 把 `"05331"` 再转成 `5331`（int），于是构造出的 `audio_path` 是 `AIME2025_5331.wav`。
+- 两套命名（`<row_index>` vs `<track_id>`）不在同一坐标系：只有当 HF `disco-eth/AIME` 恰好按 `id` 升序排列、且 `id` 不带 leading zero 时才会意外对上。否则 label 和 audio 解耦，模型学的是"随机 label-音频对"，Pearson 在 ~0.3 附近。
+
+### 7.2 方案 B（本仓库已实现的代码改动）
+
+| 文件 | 改动 |
+|---|---|
+| `phase7_release/scripts/data/hf_ingest_smoke.py` | 优先用 `row["id"]`（兜底顺序 `id → item_id → track_id → track_id_str`）作为文件名 stem，写出 `AIME2025_<id>.wav`；master CSV 同时记录 `id` 与 `row_index` 便于排查。 |
+| `phase7_release/scripts/data/gen_full_splits.py::_build_aime` | `pd.read_csv(..., dtype={"track_id": str})` 避免 pandas 把 `"05331"` 转成 `5331`；新 helper `_aime_audio_path()` 先尝试 5 位 zfill（`AIME2025_05331.wav`），再回退到无 pad（`AIME2025_5331.wav`），两种 HF id 格式都能命中；`_aime_token_loss_path()` 复用实际命中的 stem 保证 loss/entropy/SAE 路径与音频同名。 |
+
+> **其他库不受此 bug 影响**：MusicPref / MusicArena / SongEval / MusicEval 的 `audio_path` 都由 manifest 直接携带，不依赖 `row_index → filename` 的隐式映射，无需重抽。
+
+### 7.3 server 侧执行顺序（由 `2nd_iter.sh` 编排）
+
+支持 `--skip-{ingest,clean,scoring,singles,merged}` 与 `--dry-run`。overlay 写到 `phase7_release/outputs/run_state/2nd_iter/full_datasets_{single_aime_only,merged}.yaml`，**不改** `config/data/full_datasets.yaml`。
+
+1. **Stage 0：重抽 AIME 音频（id-aware）**
+
+   ```bash
+   rm -rf phase7_release/datasets/aime/audio
+   mkdir -p phase7_release/datasets/aime/audio
+   conda run -n torch21 python phase7_release/scripts/data/hf_ingest_smoke.py \
+     --repo disco-eth/AIME --source-tag AIME2025 \
+     --out-audio-dir phase7_release/datasets/aime/audio \
+     --master-csv phase7_release/data/manifests/master_index.csv \
+     --max-samples 0
+   ```
+
+2. **Stage 1：只清 AIME + all_5 的旧产物**（manifest / full_splits / features / checkpoints / reports / run_state），其他 3 个单库产物保留。
+3. **Stage 2：重打分 AIME → `gen_full_splits` → `merge_all_datasets`**（只 AIME 分数是新的；别的库 manifest 未变，`gen_full_splits` 对它们是幂等重写）。
+4. **Stage 3a：parallel runner，只把 AIME 在 `large_scale_single` overlay 里 `enabled: true`**，其他单库置 `enabled: false`；extract + train 只跑 AIME。
+5. **Stage 3b：parallel runner，`large_scale_merged` + `skip_feature_extract: true`**，训 all_5 CNN（依赖 §6.3.1 补丁）。
+6. **Stage 4 自检**：AIME + all_5 的 summary 表 + 7 条 `f0?_*_cnn_clean_test_scores.csv`。
+
+### 7.4 常用入口
+
+```bash
+# 完整 2nd iter 增量：
+bash phase7_release/scripts/run/2nd_iter.sh
+
+# 音频已重抽过，只想重训 AIME + all_5：
+bash phase7_release/scripts/run/2nd_iter.sh --skip-ingest
+
+# 只重跑 AIME single（跳过合库）：
+bash phase7_release/scripts/run/2nd_iter.sh --skip-merged
+
+# 只重跑合库 all_5（AIME 已训好）：
+bash phase7_release/scripts/run/2nd_iter.sh --skip-ingest --skip-clean --skip-scoring --skip-singles
+```

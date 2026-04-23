@@ -96,10 +96,28 @@ def main():
             continue
         if arr.ndim > 1:
             arr = arr.mean(axis=-1)
-        stem = re.sub(r"[^a-zA-Z0-9._-]+", "_", f"{args.source_tag}_{i}")
+        # Prefer a stable id field from the HF row (e.g. disco-eth/AIME's
+        # ``id`` column that the survey joins on).  Falling back to the
+        # enumeration index silently loses this mapping and was the root cause
+        # of the AIME track<->audio misalignment on the server.
+        id_field = None
+        for key in ("id", "item_id", "track_id", "track_id_str"):
+            if key in keys:
+                v = row.get(key)
+                if v is not None and str(v) != "":
+                    id_field = str(v)
+                    break
+        stem_src = id_field if id_field is not None else str(i)
+        stem = re.sub(r"[^a-zA-Z0-9._-]+", "_", f"{args.source_tag}_{stem_src}")
         wav_path = os.path.join(args.out_audio_dir, f"{stem}.wav")
         sf.write(wav_path, arr, sr if sr else 32000)
-        rows_out.append({"source": args.source_tag, "path": os.path.abspath(wav_path), "score": sc})
+        rows_out.append({
+            "source": args.source_tag,
+            "path": os.path.abspath(wav_path),
+            "score": sc,
+            "id": id_field if id_field is not None else "",
+            "row_index": i,
+        })
 
     df = pd.DataFrame(rows_out)
     if df.empty:

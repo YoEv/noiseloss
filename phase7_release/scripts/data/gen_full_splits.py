@@ -77,17 +77,54 @@ def _abs(p: str) -> str:
     return os.path.abspath(p)
 
 
+def _aime_audio_path(track_id_str: str) -> str:
+    """Resolve an AIME audio path, tolerating both HF id formats.
+
+    ``hf_ingest_smoke.py`` now uses ``row["id"]`` verbatim as the filename
+    stem (``AIME2025_<id>.wav``).  The AIME survey CSV stores ``track_id``
+    as an integer, and ``aime_join_survey.py`` zero-pads it to 5 digits.
+    Because HF may or may not zero-pad the ``id`` field, we try the zero-
+    padded form first and fall back to the bare integer form.
+    """
+    base = "phase7_release/datasets/aime/audio"
+    s = str(track_id_str)
+    try:
+        int_form = str(int(s))
+    except ValueError:
+        int_form = s
+    zfill_form = s.zfill(5) if s.isdigit() else s
+    for cand in (
+        f"{base}/AIME2025_{zfill_form}.wav",
+        f"{base}/AIME2025_{int_form}.wav",
+    ):
+        if os.path.isfile(cand):
+            return _abs(cand)
+    # Deterministic default for clear diagnostics (make_splits will drop it
+    # because os.path.exists is False).
+    return _abs(f"{base}/AIME2025_{zfill_form}.wav")
+
+
+def _aime_token_loss_path(track_id_str: str) -> str:
+    """Token-loss path stem; mirrors whichever audio filename actually exists."""
+    p = _aime_audio_path(track_id_str)
+    stem = Path(p).stem  # e.g. 'AIME2025_05331'
+    return f"aime/{stem}"
+
+
 def _build_aime() -> pd.DataFrame:
+    # Read track_id as string so that zero-padded ids like "05331" are not
+    # silently coerced to int 5331 by pandas (which previously produced
+    # 'AIME2025_5331.wav' lookups that never matched HF-id-based filenames).
     mq = pd.read_csv(
-        "phase7_release/data/manifests/pairwise_relu/aime_music_quality_1to5.csv"
+        "phase7_release/data/manifests/pairwise_relu/aime_music_quality_1to5.csv",
+        dtype={"track_id": str},
     )
+    track_ids = mq["track_id"].astype(str)
     # Scoring is music_quality only; text_audio_alignment was removed.
     return pd.DataFrame({
         "score": mq["score_1to5"].astype(float).values,
-        "audio_path": mq["track_id"].map(
-            lambda x: _abs(f"phase7_release/datasets/aime/audio/AIME2025_{x}.wav")
-        ),
-        "token_loss_path": mq["track_id"].map(lambda x: f"aime/AIME2025_{x}"),
+        "audio_path": track_ids.map(_aime_audio_path),
+        "token_loss_path": track_ids.map(_aime_token_loss_path),
         "begin_s": mq["begin_s"].astype(float).values,
         "end_s":   mq["end_s"].astype(float).values,
     })
