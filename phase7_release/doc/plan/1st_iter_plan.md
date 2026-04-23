@@ -245,11 +245,14 @@ done
 
 ```bash
 conda run -n torch21 python phase7_release/scripts/data/fit_pairwise_manifests.py \
-  --dataset musicpref --head musicality
+  --dataset musicpref --head musicality \
+  --out phase7_release/data/manifests/pairwise_relu/musicpref_musicality_1to5.csv
 conda run -n torch21 python phase7_release/scripts/data/fit_pairwise_manifests.py \
-  --dataset aime --head music_quality
+  --dataset aime --head music_quality \
+  --out phase7_release/data/manifests/pairwise_relu/aime_music_quality_1to5.csv
 conda run -n torch21 python phase7_release/scripts/data/fit_pairwise_manifests.py \
-  --dataset musicarena
+  --dataset musicarena \
+  --out phase7_release/data/manifests/pairwise_relu/musicarena_1to5.csv
 
 conda run -n torch21 python phase7_release/scripts/data/gen_full_splits.py
 conda run -n torch21 python phase7_release/scripts/data/merge_all_datasets.py
