@@ -1,235 +1,234 @@
-# 1st-Iter Plan — 把 `phase7_local4server` 的新打分与新提取并入 `phase7_release`
+# 1st-Iter Plan — Port the New Scoring & Extraction from `phase7_local4server` into `phase7_release`
 
-## 0. 目标与约束
+## 0. Goals and Constraints
 
-- **目标**：替换 `phase7_release` 里错误的**打分规则**与**30 s 提取**两件事；只做 clean × CNN 的 7 个家族，每个 dataset 独立 + `all_5_datasets` 合库。
-- **硬约束**：
-  1. `phase7_release` 所有既有**路径与文件名完全保持不变**（CSV 名字、manifest 路径、config key、特征目录、splits 目录、CLI 参数）；
-  2. 仅**替换已有文件的实现**，不新增新目录结构；
-  3. `scripts/run/run_full_14_experiments_parallel.sh --splits clean` 一键覆盖旧结果；
-  4. **不动 MusicEval**（打分、splits、特征、checkpoints、reports 全部保留现状，不重跑）；
-  5. **彻底移除** transformer 和 noisy：7 家族 × 1 backbone × 1 splits-variant，共 7 个实验/库。
+- **Goal**: Replace the two things `phase7_release` got wrong — the **scoring rules** and the **30 s feature extraction** — and only run the 7 clean × CNN experiment families, once per single dataset plus once on `all_5_datasets`.
+- **Hard constraints**:
+  1. Every existing **path and filename in `phase7_release` stays byte-identical** (CSV names, manifest paths, config keys, feature directories, splits directories, CLI arguments).
+  2. Only **replace the implementation of existing files**; do not introduce a new directory layout.
+  3. `scripts/run/run_full_14_experiments_parallel.sh --splits clean` overwrites the old results in one shot.
+  4. **MusicEval is untouched** — scoring, splits, features, checkpoints and reports all remain as-is; nothing is re-run.
+  5. **Completely remove** transformer and noisy: 7 families × 1 backbone × 1 splits-variant = 7 experiments per dataset.
 
 ---
 
-## 1. 打分规则替换（只换内核，不动文件名）
+## 1. Scoring Rule Replacement (new kernel, same filenames)
 
-### 1.1 Elo 库迁入
+### 1.1 Import the Elo library
 
-- 新增 `phase7_release/lib/elo_scoring.py`：从 `phase7_local4server/training/elo.py` 整体搬过来（`fit_elo`, `fit_elo_grouped`, `map_to_mos_range`, `track_score_from_system_elo` with `target_fn`）。
-- **删除** `phase7_release/lib/pairwise_relu_scores.py`（不再保留 legacy）。
+- Add `phase7_release/lib/elo_scoring.py`: lift `fit_elo`, `fit_elo_grouped`, `map_to_mos_range`, `track_score_from_system_elo` (with `target_fn`) from `phase7_local4server/training/elo.py`.
+- **Delete** `phase7_release/lib/pairwise_relu_scores.py` (no legacy kept).
 
-### 1.2 先在 local 把 MusicPref 打分改成"只用 musicality"
+### 1.2 First, fix MusicPref scoring locally to "musicality-only"
 
-在开始迁移前先改 `phase7_local4server/training/build_musicpref_scores.py`：移除 fidelity 轴、移除 `--w_musicality / --w_fidelity` 参数、`track_m` 单轴直接 `map_to_mos_range`。这样 local 与 release 两边的打分规则一致。
+Before starting the port, edit `phase7_local4server/training/build_musicpref_scores.py`: drop the fidelity axis, drop the `--w_musicality / --w_fidelity` arguments, and feed the single-axis `track_m` straight into `map_to_mos_range`. This keeps the scoring rules in `local4server` and `release` aligned.
 
-### 1.3 `scripts/data/fit_pairwise_manifests.py` 内核替换
+### 1.3 Swap the kernel of `scripts/data/fit_pairwise_manifests.py`
 
-**文件名、CLI 名、输出 CSV 路径与列全部保持不变**，只换算法：
+**Filenames, CLI names, output CSV paths and columns all stay unchanged** — only the algorithm changes:
 
-| 现有 CLI（保留可用的组合） | 现有输出路径（不改） | 新实现 |
+| Existing CLI (kept combinations) | Existing output path (unchanged) | New implementation |
 |---|---|---|
-| `--dataset musicpref --head musicality` | `data/manifests/pairwise_relu/musicpref_musicality_1to5.csv` | Elo：系统 Elo（7 systems）+ `track_score_from_system_elo` + robust MOS 到 `[1,5]`（本地已验证） |
-| `--dataset aime --head music_quality` | `data/manifests/pairwise_relu/aime_music_quality_1to5.csv` | `build_aime_scores.py` 的 `system_elo + 400·logit_Laplace(p̂)` → robust MOS；同时把每条 track 的 `begin_s,end_s` 写到同文件新增列（CSV 向后兼容） |
-| `--dataset musicarena` | `data/manifests/pairwise_relu/musicarena_1to5.csv` | `build_musicarena_scores.py` 的系统 Elo + 4-outcome context-aware 软目标 + system-span=50 压缩 + robust MOS；同时把 `listen_sec` 写到 CSV 新增列 |
+| `--dataset musicpref --head musicality` | `data/manifests/pairwise_relu/musicpref_musicality_1to5.csv` | Elo: system Elo (7 systems) + `track_score_from_system_elo` + robust MOS onto `[1, 5]` (validated locally). |
+| `--dataset aime --head music_quality` | `data/manifests/pairwise_relu/aime_music_quality_1to5.csv` | `build_aime_scores.py`'s `system_elo + 400·logit_Laplace(p̂)` → robust MOS; also writes per-track `begin_s, end_s` columns into the same file (backward-compatible). |
+| `--dataset musicarena` | `data/manifests/pairwise_relu/musicarena_1to5.csv` | `build_musicarena_scores.py`'s system Elo + 4-outcome context-aware soft target + system-span=50 compression + robust MOS; also writes a `listen_sec` column. |
 
-**被彻底移除的 head 组合**（代码分支与旧产物都要清）：
+**Head combinations to remove entirely** (both code branches and old artifacts):
 
-- CLI 层：从 `--head` 的 `choices` 里删掉 `fidelity` 与 `text_audio_alignment`，并删除 `load_musicpref_pairs` 对 fidelity 列、`load_aime_pairs` 对 "Text-Audio Alignment" question_type 的分支。
-- 旧产物：`data/manifests/pairwise_relu/musicpref_fidelity_1to5.csv` 与 `data/manifests/pairwise_relu/aime_text_audio_alignment_1to5.csv` 直接 `rm`（§3.1 清理清单里已列出）。
+- CLI: drop `fidelity` and `text_audio_alignment` from `--head`'s `choices`, and remove the `load_musicpref_pairs` fidelity branch and the `load_aime_pairs` "Text-Audio Alignment" question-type branch.
+- Old artifacts: `rm` `data/manifests/pairwise_relu/musicpref_fidelity_1to5.csv` and `data/manifests/pairwise_relu/aime_text_audio_alignment_1to5.csv` (already listed in the §3.1 cleanup).
 
-### 1.4 `scripts/data/gen_full_splits.py` 改动
+### 1.4 Changes to `scripts/data/gen_full_splits.py`
 
-所有 output 路径与列（`score, audio_path, token_loss_path`）**完全不变**；只改 score 的来源：
+All output paths and columns (`score, audio_path, token_loss_path`) **stay unchanged**; only the `score` source changes:
 
-| dataset | 现状 | 改为 |
+| dataset | current | new |
 |---|---|---|
-| `musicpref` | `(musicality + fidelity) / 2` | 直接用 `musicpref_musicality_1to5.csv`（单轴） |
-| `aime` | `(music_quality + text_audio_alignment) / 2` | 直接用 `aime_music_quality_1to5.csv`（仅 Music Quality） |
-| `music_arena` | `musicarena_1to5.csv` 单列 | 不变（但底层算法已换） |
-| `songeval` | 5 维 × 4 标注平均 | **仅** 4 标注者的 `Musicality` 平均 |
-| `musiceval` | 原生 5 分 | **保留原规则，完全不动** |
+| `musicpref` | `(musicality + fidelity) / 2` | directly from `musicpref_musicality_1to5.csv` (single axis) |
+| `aime` | `(music_quality + text_audio_alignment) / 2` | directly from `aime_music_quality_1to5.csv` (Music Quality only) |
+| `music_arena` | `musicarena_1to5.csv` single column | unchanged (but underlying algorithm replaced) |
+| `songeval` | 5 dims × 4 annotators averaged | **only** the 4 annotators' `Musicality` averaged |
+| `musiceval` | native 5-point | **kept exactly as-is** |
 
-AIME / MusicArena 需要的 `begin_s,end_s` / `listen_sec` 由 `fit_pairwise_manifests.py` 写进各自的 1to5 CSV，`gen_full_splits.py` 转写到对应 `full_splits/<ds>/{train,val,test}.csv` 的额外列（不影响下游只读 `score/audio_path/token_loss_path` 的脚本）。
+The `begin_s, end_s` / `listen_sec` columns that AIME / MusicArena need are written into their respective 1to5 CSVs by `fit_pairwise_manifests.py`, and `gen_full_splits.py` propagates them as extra columns in `full_splits/<ds>/{train,val,test}.csv` (downstream scripts that only read `score, audio_path, token_loss_path` are unaffected).
 
 ### 1.5 `merge_all_datasets.py`
 
-文件名、输出路径、列**全部不变**；只因上游 score 变了，重跑一次就覆盖旧的 `full_splits/all_5_datasets/*.csv`。
+Filename, output path and columns **all unchanged**; a single re-run overwrites `full_splits/all_5_datasets/*.csv` with the new upstream scores.
 
 ---
 
-## 2. 特征提取替换（只换行为，不换 CLI 形状）
+## 2. Feature Extraction Replacement (new behaviour, same CLI surface)
 
-### 2.1 通用改动（同时加到 3 个提取器，默认行为保持向后兼容）
+### 2.1 Common changes (applied to all three extractors; default behaviour stays backward-compatible)
 
 - `scripts/features/extract_entropy_curves.py`
 - `scripts/features/extract_sae_features_musicdiscovery.py`
 - `scripts/features/extract_loss_curves.py` + `scripts/loss/extract_per_token_loss.py`
 
-新增（默认关闭）：
-- `--chunk-sec FLOAT`（默认 0）—— 分块推理窗口长度
-- `--pool-full-song` / `--no-pool-full-song`（默认 False）—— 是否把分块拼出的长序列 uniform-pool 到 `fixed-time-steps`
-- `--max-audio-sec FLOAT`（替换硬编码 `MAX_AUDIO_SECONDS=30`，默认仍 30）
-- 从 split CSV 里的可选列 `begin_s,end_s` 读取 rater-aligned 窗口（若列存在）
+New options (off by default):
+- `--chunk-sec FLOAT` (default 0) — chunked-inference window length.
+- `--pool-full-song` / `--no-pool-full-song` (default False) — whether to uniform-pool the concatenated long sequence to `fixed-time-steps`.
+- `--max-audio-sec FLOAT` (replaces the hard-coded `MAX_AUDIO_SECONDS=30`; default still 30).
+- Optional `begin_s, end_s` columns in the split CSV are read as a rater-aligned window (when present).
 
-SAE 提取器另外修一个现有 bug：短 wav 的零填充改成**只截不补**（和 local4server 一致）。
+The SAE extractor also gets a pre-existing bug fixed: zero-padding for short wavs is replaced with **truncate-only, no padding** (matching `local4server`).
 
-### 2.2 每个 dataset 的提取配置（CLI flags 由 config 注入）
+### 2.2 Per-dataset extraction settings (CLI flags injected via config)
 
-| dataset | flags | 效果 |
+| dataset | flags | effect |
 |---|---|---|
-| `musicpref` | 沿用默认 | 30 s 片段（本地已跑通） |
-| `aime` | `--max-audio-sec 10` + 读 `begin_s/end_s` | 按 survey 精确 10 s 窗口 |
-| `music_arena` | `--chunk-sec 30 --pool-to-frames 1500 --max-audio-sec 180` + 读 `listen_sec` | rater-aligned ≤180 s → 30 s 块 → uniform-pool 1500 帧 |
-| `songeval` | `--chunk-sec 30 --pool-full-song --max-audio-sec 0` | 整曲 → 30 s 块 → uniform-pool 1500 帧 |
-| `all_5_datasets` | 按样本 `source` 列逐条选上面对应规则 | 合库时每个子库特征保真 |
+| `musicpref` | use defaults | 30 s clip (already validated locally) |
+| `aime` | `--max-audio-sec 10` + read `begin_s/end_s` | exact 10 s survey window per row |
+| `music_arena` | `--chunk-sec 30 --pool-to-frames 1500 --max-audio-sec 180` + read `listen_sec` | rater-aligned ≤ 180 s → 30 s chunks → uniform-pool to 1500 frames |
+| `songeval` | `--chunk-sec 30 --pool-full-song --max-audio-sec 0` | full song → 30 s chunks → uniform-pool to 1500 frames |
+| `all_5_datasets` | per-row source column picks the matching rule above | per-subset fidelity preserved under merge |
 
-loss / entropy / SAE **必须传同一组 flags**，保证三路时间长度对齐到 1500 帧（hybrid 拼通道才能 work）。
+Loss / entropy / SAE **must be passed the same flag set**, otherwise the three time axes won't align to 1500 frames and the hybrid channel-stacking breaks.
 
-### 2.3 路径
+### 2.3 Paths
 
-所有 features / manifest CSV / shard 目录路径**完全不变**：
+All feature / manifest CSV / shard directory paths **stay unchanged**:
 - `phase7_release/outputs/full/features/entropy/<dataset>/clean/`
 - `phase7_release/outputs/full/features/sae/<dataset>/clean/`
 - `phase7_release/outputs/full/features/loss/<dataset>/clean/`
 
-AIME / MusicPref / MusicArena 在这三个目录下的旧特征在本次迭代里会**被新特征直接覆盖**（同 dataset 同路径同文件名）。`musiceval/` 子目录**不会被触发覆盖**（见第 3 节）。
+The old AIME / MusicPref / MusicArena features under those directories are **overwritten in place** by this iteration (same dataset, same path, same filename). The `musiceval/` subtree is **never touched** (see §3).
 
 ---
 
-## 3. 一键脚本（覆盖旧结果）
+## 3. One-shot Script (overwrites the old results)
 
-复用现有 `scripts/run/run_full_14_experiments_parallel.{sh,py}` + `run_musiceval_14_experiments.py`，**不新建入口**，只做三件事：
+Reuse the existing `scripts/run/run_full_14_experiments_parallel.{sh,py}` + `run_musiceval_14_experiments.py` — **no new entry point** — and do only three things:
 
-1. **在 parallel runner 前插入一段打分步骤**（在 `run_full_14_experiments_parallel.py` 启动 dataset 子任务之前跑一次）：
+1. **Prepend a scoring stage to the parallel runner** (run once before `run_full_14_experiments_parallel.py` spawns dataset sub-jobs):
    ```bash
    python scripts/data/fit_pairwise_manifests.py --dataset musicpref   --head musicality
    python scripts/data/fit_pairwise_manifests.py --dataset aime        --head music_quality
    python scripts/data/fit_pairwise_manifests.py --dataset musicarena
-   python scripts/data/gen_full_splits.py          # 覆盖 full_splits/{musicpref,aime,music_arena,songeval}/*
-   python scripts/data/merge_all_datasets.py       # 覆盖 full_splits/all_5_datasets/*
+   python scripts/data/gen_full_splits.py          # overwrites full_splits/{musicpref,aime,music_arena,songeval}/*
+   python scripts/data/merge_all_datasets.py       # overwrites full_splits/all_5_datasets/*
    ```
-   MusicEval 的 `full_splits/musiceval/*` **不重建**。
+   MusicEval's `full_splits/musiceval/*` is **not rebuilt**.
 
-   注：**SongEval 不在上面的 pair-fit 列表里**，因为它本来就是每曲直接标注（不是 pairwise）。它的 label 由 `gen_full_splits.py` 直接从 `raw_hf/SongEval/metadata.jsonl` 解析，现在要把 `[Coherence, Musicality, Memorability, Clarity, Naturalness]` 全平均改成只取 `Musicality` 平均，逻辑在 `gen_full_splits.py` 内部调整即可，不需要新脚本。SongEval 的**特征**因为音频窗口从 30 s prefix 变成全曲分块 + pool，仍然需要重抽（由 runner 按 `extract_flags` 处理，不属于打分这一步）。
+   Note: **SongEval is intentionally absent from the pair-fit list above** because its scores were never pairwise to begin with — they are per-song annotations. `gen_full_splits.py` reads the labels directly from `raw_hf/SongEval/metadata.jsonl`; the change is to switch from averaging all five `[Coherence, Musicality, Memorability, Clarity, Naturalness]` dimensions to averaging only `Musicality`. That is a local edit inside `gen_full_splits.py`; no new script is needed. SongEval **features** do still have to be re-extracted because the audio window changes from a 30 s prefix to full-song chunking + pooling, but that is handled by the runner via `extract_flags`, not by the scoring stage.
 
-2. **per-dataset 的 `extract_flags`** 加到 `config/data/full_datasets.yaml` 的每个 dataset entry；`run_full_14_experiments_parallel.py` 的 `_build_jobs` 把 flags 写进 per-job merged config；`run_musiceval_14_experiments.py` 在 `prep_loss_features / prep_entropy_features / prep_sae_features` 三个 step 里透传。
+2. **Per-dataset `extract_flags`** are added to each dataset entry in `config/data/full_datasets.yaml`; `run_full_14_experiments_parallel.py::_build_jobs` writes them into the per-job merged config; `run_musiceval_14_experiments.py` forwards them to the three prep steps `prep_loss_features / prep_entropy_features / prep_sae_features`.
 
-3. **训练部分**：7 家族 CNN（见第 4 节），沿用现有 `seq_len=1500`。
+3. **Training**: the 7-family CNN suite (see §4), using the existing `seq_len=1500`.
 
-### 3.1 覆盖策略（不改路径）
+### 3.1 Overwrite strategy (paths unchanged)
 
-直接用 runner 的 `--reset-state` 或手动清掉对应 `run_state` 下的 state.json。每一条的"是否真的需要清"详见 §6.3 的矩阵；这里只列出"会被覆盖 / 可能被覆盖"的路径：
-- 被覆盖的打分 CSV：`data/manifests/pairwise_relu/{musicpref_musicality,aime_music_quality,musicarena}_1to5.csv`
-- 被覆盖的 splits：`data/full_splits/{musicpref,aime,music_arena,songeval,all_5_datasets}/*.csv`
-- 被覆盖的特征（只 AIME / MusicArena / SongEval 真正需要重提；MusicPref 窗口未变可沿用；all_5 复用单库特征不独立抽）：`outputs/full/features/{entropy,sae,loss}/{aime,music_arena,songeval}/clean/**`
-- 被覆盖的训练产物（5 个 dataset 全部重训）：`outputs/full/{checkpoints,plots,reports,logs}/{musicpref,aime,music_arena,songeval,all_5_datasets}/clean/**`
-- 被**清理**（不再生成）的：`data/manifests/pairwise_relu/{musicpref_fidelity,aime_text_audio_alignment}_1to5.csv`
-- **不动**：`musiceval/` 子目录下的任何东西、`data/splits/musiceval/*`、`data/full_splits/musiceval/*`、`outputs/full/*/musiceval/**`、`reports/musiceval/**`。
-
----
-
-## 4. 清 transformer 与 noisy（代码 + config 全面瘦身）
-
-### 4.1 删除 transformer
-
-- 目录删除：`phase7_release/training/curve_transformer/`、`phase7_release/training/hybrid/train_transformer_pool.py`、`train_transformer.py`。
-- Config 删除：`config/model/loss_curve_transformer.yaml`；`config/model/hybrid.yaml` 和 `config/training/hybrid.yaml` 里的 transformer 段；`config/training/defaults` 下 `curve_transformer / hybrid_transformer_pool / hybrid_transformer` 三项；`config/model/experiments/`、`config/training/experiments/` 下所有 `*transformer*` 文件。
-- Runner 瘦身：
-  - `run_musiceval_14_experiments.py`：删除 `transformer_step_names` 集合、`--skip-transformer` 参数、`f0x_*_transformer` 所有 Step、transformer 相关 batch-size / prefetch 参数。
-  - `run_full_14_experiments_parallel.py`：删除 `--torch-env` 外只和 transformer 有关的字段（目前没有专门字段，就是通过 runner 传）。
-- 文档：`doc/plan/experiment_code_map.md` 改成 7 条（只留 `_cnn`）；`doc/plan/phase7_release_plan.md` 里 "7 × 2 = 14" 相关表述改成 "7 × 1 = 7"；`scripts/eval/eval_14_experiments.py` 与其命名保留，但内部枚举只列 CNN 家族。
-
-### 4.2 删除 noisy
-
-- Config 删除：`config/paths.yaml::data.splits.noisy`；`config/data/full_datasets.yaml` 里所有 `splits.noisy` 段；任何 `*_noisy.yaml` 若存在。
-- 数据目录清理：`data/splits/musiceval/*_noisy.csv`、`data/full_splits/*/*_noisy.csv` 删除。
-- Runner 瘦身：
-  - `scripts/data/preprocess_data.py::_musiceval_copy_splits` 只保留 `clean` 映射。
-  - `scripts/data/gen_full_splits.py`：去掉 `.to_csv(..._noisy.csv)` 这行。
-  - `scripts/data/merge_all_datasets.py`：`splits` 列表只留 `train/val/test`。
-  - `run_full_14_experiments_parallel.sh/.py`：去掉 `SPLITS` / `--splits` 的 noisy 分支（默认 clean），更改 `--splits` 参数为不可选或直接删除。
-  - `run_musiceval_14_experiments.py`：去掉 `--splits noisy` 能走的所有分支；`noisy_flag` / `use_noisy_splits` 相关变量删除。
-  - `scripts/features/*` / `scripts/loss/*`：`--splits` 参数改成常量 `"clean"` 或完全删除。
-- 文档：`phase7_release_plan.md` 的 "noisy 标签版" 指令块删除。
-
-### 4.3 新 7 实验矩阵
-
-保留 CNN 版本的 7 家族：`f01_loss_only_cnn`, `f02_entropy_only_cnn`, `f03_sae_only_cnn`, `f04_loss_entropy_cnn`, `f05_entropy_sae_cnn`, `f06_loss_sae_cnn`, `f07_loss_entropy_sae_cnn`。总工作量 = `5 库 × 7 + 合库 1 × 7 = 42 个 CNN 实验`。MusicEval 不触发。
+Use the runner's `--reset-state` flag, or manually delete the corresponding `state.json` under `run_state`. Whether each artifact actually needs to be cleaned is detailed in the matrix in §6.3; here we just list every path that **will or may be overwritten**:
+- Scoring CSVs to be overwritten: `data/manifests/pairwise_relu/{musicpref_musicality,aime_music_quality,musicarena}_1to5.csv`.
+- Splits to be overwritten: `data/full_splits/{musicpref,aime,music_arena,songeval,all_5_datasets}/*.csv`.
+- Features to be overwritten (only AIME / MusicArena / SongEval truly need re-extraction; MusicPref's window is unchanged and can be reused; `all_5` reuses per-DB features and is not extracted separately): `outputs/full/features/{entropy,sae,loss}/{aime,music_arena,songeval}/clean/**`.
+- Training artifacts to be overwritten (all 5 datasets are retrained): `outputs/full/{checkpoints,plots,reports,logs}/{musicpref,aime,music_arena,songeval,all_5_datasets}/clean/**`.
+- To be **removed** (never regenerated): `data/manifests/pairwise_relu/{musicpref_fidelity,aime_text_audio_alignment}_1to5.csv`.
+- **Never touched**: anything under `musiceval/`, `data/splits/musiceval/*`, `data/full_splits/musiceval/*`, `outputs/full/*/musiceval/**`, `reports/musiceval/**`.
 
 ---
 
-## 5. 不改的东西（显式清单）
+## 4. Remove Transformer and Noisy (full slim-down across code + config)
 
-- 所有 `training/{loss_curve,entropy_curve,hybrid}/*` 的 CNN 代码与 CLI
-- `lib/repro/*`（dataset / nets / metrics / data_paths / scaling）
-- `config/paths.yaml` 除 `data.splits.noisy` 外的其它字段
-- `config/model/{loss_curve_cnn,hybrid,sae,sae_sparse_autoencoder,sae_verifier,verifier}.yaml`（CNN / SAE 段保留，transformer 段删）
-- MusicEval 的打分、splits、特征、checkpoints、reports、logs
-- 14 实验 runner 的 run_tag / state / lock 机制
-- `scripts/baseline/*`、`scripts/eval/*`、`scripts/analysis/*`（CNN 相关部分）
+### 4.1 Delete transformer
+
+- Directory removals: `phase7_release/training/curve_transformer/`, `phase7_release/training/hybrid/train_transformer_pool.py`, `train_transformer.py`.
+- Config removals: `config/model/loss_curve_transformer.yaml`; the transformer sections in `config/model/hybrid.yaml` and `config/training/hybrid.yaml`; the three entries `curve_transformer / hybrid_transformer_pool / hybrid_transformer` in `config/training/defaults`; every `*transformer*` file under `config/model/experiments/` and `config/training/experiments/`.
+- Runner slim-down:
+  - `run_musiceval_14_experiments.py`: drop the `transformer_step_names` set, the `--skip-transformer` argument, every `f0x_*_transformer` Step, and the transformer-related batch-size / prefetch arguments.
+  - `run_full_14_experiments_parallel.py`: no transformer-specific fields to drop (it only forwards via the runner), but verify no stale flags remain.
+- Documentation: `doc/plan/experiment_code_map.md` shrinks to 7 entries (CNN only); `doc/plan/phase7_release_plan.md` changes "7 × 2 = 14" to "7 × 1 = 7"; `scripts/eval/eval_14_experiments.py` keeps its name but its internal enumeration lists CNN families only.
+
+### 4.2 Delete noisy
+
+- Config removals: `config/paths.yaml::data.splits.noisy`; every `splits.noisy` block in `config/data/full_datasets.yaml`; any `*_noisy.yaml` if present.
+- Data-dir cleanup: delete `data/splits/musiceval/*_noisy.csv` and `data/full_splits/*/*_noisy.csv`.
+- Runner slim-down:
+  - `scripts/data/preprocess_data.py::_musiceval_copy_splits`: keep only the `clean` mapping.
+  - `scripts/data/gen_full_splits.py`: remove the `.to_csv(..._noisy.csv)` line.
+  - `scripts/data/merge_all_datasets.py`: the `splits` list keeps only `train/val/test`.
+  - `run_full_14_experiments_parallel.sh/.py`: remove the `SPLITS` / `--splits` noisy branch (default clean); make `--splits` non-optional or drop it.
+  - `run_musiceval_14_experiments.py`: remove every branch reachable via `--splits noisy`; delete `noisy_flag` / `use_noisy_splits`.
+  - `scripts/features/*` / `scripts/loss/*`: hard-code `--splits` to `"clean"` or remove it altogether.
+- Documentation: remove the "noisy-labelled version" instructions block from `phase7_release_plan.md`.
+
+### 4.3 New 7-experiment matrix
+
+Keep the CNN versions of the 7 families: `f01_loss_only_cnn`, `f02_entropy_only_cnn`, `f03_sae_only_cnn`, `f04_loss_entropy_cnn`, `f05_entropy_sae_cnn`, `f06_loss_sae_cnn`, `f07_loss_entropy_sae_cnn`. Total workload = `5 datasets × 7 + merged 1 × 7 = 42 CNN runs`. MusicEval never triggers.
 
 ---
 
-## 6. 执行顺序
+## 5. What is NOT Changed (explicit list)
 
-1. **阶段 A（代码，等 review 通过）**
-   1. 改 `phase7_local4server/training/build_musicpref_scores.py` 去掉 fidelity；跑一次确认。
-   2. 新增 `phase7_release/lib/elo_scoring.py`；删除 `phase7_release/lib/pairwise_relu_scores.py`。
-   3. 改写 `scripts/data/fit_pairwise_manifests.py`（文件名、CLI、输出路径不变；内核换 Elo；`fidelity / text_audio_alignment` 分支改为报错退出）。
-   4. 改写 `scripts/data/gen_full_splits.py`（score 来源按 1.4）。
-   5. 改 3 个特征抽取器的 CLI（新增 chunk/pool/max-audio-sec/begin_s-end_s 支持，默认不变）；修 SAE 零填充 bug。
-   6. `config/data/full_datasets.yaml` 每个 dataset 加 `extract_flags`；runner 透传。
-   7. 清理 transformer / noisy（第 4 节全部删除动作）。
-
-2. **阶段 B（上 server 覆盖跑）** —— 详见 §6.2 的脚本 plan。
+- All CNN code and CLI under `training/{loss_curve,entropy_curve,hybrid}/*`.
+- `lib/repro/*` (dataset / nets / metrics / data_paths / scaling).
+- Every field in `config/paths.yaml` except `data.splits.noisy`.
+- `config/model/{loss_curve_cnn,hybrid,sae,sae_sparse_autoencoder,sae_verifier,verifier}.yaml` (CNN / SAE sections kept, transformer sections deleted).
+- MusicEval scoring, splits, features, checkpoints, reports, logs.
+- The 14-experiment runner's run_tag / state / lock mechanism.
+- `scripts/baseline/*`, `scripts/eval/*`, `scripts/analysis/*` (the CNN-related portions).
 
 ---
 
-## 6.1 两个 runner 的分工（必须搞清）
+## 6. Execution Order
 
-| runner | 角色 | 进程数 | GPU 占用 | 典型场景 |
+1. **Phase A (code; waits for review)**
+   1. Edit `phase7_local4server/training/build_musicpref_scores.py` to drop fidelity; run once to verify.
+   2. Add `phase7_release/lib/elo_scoring.py`; delete `phase7_release/lib/pairwise_relu_scores.py`.
+   3. Rewrite `scripts/data/fit_pairwise_manifests.py` (filenames / CLI / output paths unchanged; kernel replaced with Elo; `fidelity / text_audio_alignment` branches now raise and exit).
+   4. Rewrite `scripts/data/gen_full_splits.py` (score source per §1.4).
+   5. Update all three feature extractors' CLI (add chunk / pool / max-audio-sec / `begin_s`, `end_s` support with defaults unchanged); fix the SAE zero-padding bug.
+   6. Add `extract_flags` to each dataset entry in `config/data/full_datasets.yaml`; wire them through the runners.
+   7. Clean up transformer / noisy (every deletion listed in §4).
+
+2. **Phase B (run on server and overwrite)** — detailed in §6.2.
+
+---
+
+## 6.1 The Two Runners' Division of Labor (must be clear)
+
+| runner | role | processes | GPU usage | typical scenario |
 |---|---|---|---|---|
-| `scripts/run/run_musiceval_14_experiments.py` | **单数据集** 执行全部 7 个 step：`prep_loss_features / prep_sae_features / prep_entropy_features / baselines（可选） / f01..f07 CNN / eval_14_experiments` | 1 | 默认 1 张（由外部 `CUDA_VISIBLE_DEVICES` 指定），所有 step 串行跑 | MusicEval 小规模闸门；或被 full parallel runner 作为子进程调起 |
-| `scripts/run/run_full_14_experiments_parallel.py` | **多数据集编排器**：读 `config/data/full_datasets.yaml`，按 `execution.include_scopes` 枚举 dataset；`nvidia-smi` 探测可用 GPU，每个 dataset 起一个 `run_musiceval_14_experiments.py` 子进程，`CUDA_VISIBLE_DEVICES=<gpu_id>` 钉在一张卡上；并发数 ≤ `gpu_parallel.max_concurrent_jobs` | N（每 dataset 1 个） | 每子进程 1 张卡，最多并发 8 | full-scale 5 单库 + 合库 |
+| `scripts/run/run_musiceval_14_experiments.py` | **Single dataset**, runs all 7 steps serially: `prep_loss_features / prep_sae_features / prep_entropy_features / baselines (optional) / f01..f07 CNN / eval_14_experiments`. | 1 | 1 GPU by default (pinned via external `CUDA_VISIBLE_DEVICES`); every step runs sequentially. | the small-scale MusicEval gate; or used as a sub-process by the full parallel runner. |
+| `scripts/run/run_full_14_experiments_parallel.py` | **Multi-dataset orchestrator**. Reads `config/data/full_datasets.yaml`, enumerates datasets via `execution.include_scopes`; probes `nvidia-smi` for usable GPUs; launches one `run_musiceval_14_experiments.py` sub-process per dataset, pinning `CUDA_VISIBLE_DEVICES=<gpu_id>`; concurrency ≤ `gpu_parallel.max_concurrent_jobs`. | N (one per dataset) | 1 GPU per child, up to 8 concurrent. | full-scale: 5 single datasets + merged. |
 
-**server 上必须用 parallel runner**：8×H100 场景下，5 单库顺序跑会让 7 张卡常年空闲；并行能把整个 full-scale 时间压到 ~单库耗时 × ceil(5/并发度)。**小规模 MusicEval 不用并行**（单库、单 GPU、且本次完全不重跑）。
+**On the server you must use the parallel runner**: on 8×H100, running the 5 single datasets sequentially leaves 7 cards idle most of the time; parallelism collapses the full-scale wall time down to roughly `single-dataset time × ceil(5 / concurrency)`. **The small-scale MusicEval gate does not need parallelism** (single dataset, single GPU, and this iteration does not rerun it anyway).
 
 ---
 
-## 6.2 阶段 B —— server 上的一键运行 plan
+## 6.2 Phase B — One-shot Server Plan
 
-只操作 **clean × CNN × 7** 的 5 个 dataset（`musicpref / aime / songeval / music_arena / all_5_datasets`）；MusicEval 全程不动。
+Only operate on the 5 datasets in the **clean × CNN × 7** matrix (`musicpref / aime / songeval / music_arena / all_5_datasets`); MusicEval is not touched.
 
-> **一键入口**：`phase7_release/scripts/run/1st_iter.sh`
-> 内部按 §6.2.1 → §6.2.4 顺序依次执行；支持 `--skip-{clean,scoring,singles,merged}` 和 `--dry-run`。
-> overlay 写到 `phase7_release/outputs/run_state/1st_iter/full_datasets_{single,merged}.yaml`，**不改** `config/data/full_datasets.yaml`。
+> **Entry point**: `phase7_release/scripts/run/1st_iter.sh`
+> Internally executes §6.2.1 → §6.2.4 in order; supports `--skip-{clean,scoring,singles,merged}` and `--dry-run`.
+> Overlays are written to `phase7_release/outputs/run_state/1st_iter/full_datasets_{single,merged}.yaml`; `config/data/full_datasets.yaml` is **not mutated**.
 >
-> **AIME 音频文件名修复（方案 B）已从 1st iter 中剥离**，单独由
-> `phase7_release/scripts/run/2nd_iter.sh` 负责；见本文 §7。
+> **The AIME audio filename fix (Option B) has been split out of 1st iter** into a separate entry point `phase7_release/scripts/run/2nd_iter.sh`; see §7.
 
-### 6.2.1 Step-0 清旧产物（本地 / server 皆可；只清不生成）
+### 6.2.1 Step-0: Clean Old Artifacts (runs locally or on server; only deletes, does not produce)
 
-**只针对受影响的 4 个单库 + all_5**，且只清这一次。脚本执行在 `PROJECT_ROOT`：
+**Targets only the 4 affected single DBs + `all_5`**, and runs exactly once. Execute from `PROJECT_ROOT`:
 
 ```bash
-# 1. 旧打分 manifest（只清会被新 Elo 规则覆盖的几份 + 彻底废弃的两份）
+# 1. Old scoring manifests (delete the ones the new Elo rules will overwrite + the two that are retired outright)
 rm -f phase7_release/data/manifests/pairwise_relu/{musicpref_musicality,aime_music_quality,musicarena}_1to5.csv
 rm -f phase7_release/data/manifests/pairwise_relu/{musicpref_fidelity,aime_text_audio_alignment}_1to5.csv
 
-# 2. 旧 full_splits（MusicEval 保留）
+# 2. Old full_splits (MusicEval retained)
 for ds in musicpref aime music_arena songeval all_5_datasets; do
   rm -rf "phase7_release/data/full_splits/${ds}"
 done
 
-# 3. 旧特征（仅 AIME/MusicArena/SongEval/all_5 需要清；MusicPref 的 30 s 特征数值不变可复用）
+# 3. Old features (only AIME / MusicArena / SongEval / all_5 need cleaning; MusicPref's 30 s features are unchanged and can be reused)
 for ds in aime music_arena songeval all_5_datasets; do
   rm -rf "phase7_release/outputs/full/features/loss/${ds}"    \
          "phase7_release/outputs/full/features/entropy/${ds}" \
          "phase7_release/outputs/full/features/sae/${ds}"
 done
 
-# 4. 旧训练产物 + run_state（5 个 dataset）
+# 4. Old training artifacts + run_state (5 datasets)
 for ds in musicpref aime music_arena songeval all_5_datasets; do
   rm -rf "phase7_release/outputs/full/checkpoints/${ds}" \
          "phase7_release/outputs/full/plots/${ds}"       \
@@ -240,11 +239,11 @@ for ds in musicpref aime music_arena songeval all_5_datasets; do
 done
 ```
 
-`musiceval/` 子目录、`phase7_release/data/splits/musiceval/`、`outputs/**/musiceval/` 全部 **不动**。
+The `musiceval/` subtree, `phase7_release/data/splits/musiceval/`, and `outputs/**/musiceval/` are all **left alone**.
 
-### 6.2.2 Step-1 重打分 + 重切 split（CPU 单机，无 GPU，秒级-分钟级）
+### 6.2.2 Step-1: Re-score and Re-split (CPU-only; seconds to a few minutes)
 
-这一步 **不进 parallel runner**，是 full runner 启动前的前置步骤：
+This step is **not** driven by the parallel runner; it is a prerequisite that must finish first:
 
 ```bash
 conda run -n torch21 python phase7_release/scripts/data/fit_pairwise_manifests.py \
@@ -261,47 +260,47 @@ conda run -n torch21 python phase7_release/scripts/data/gen_full_splits.py
 conda run -n torch21 python phase7_release/scripts/data/merge_all_datasets.py
 ```
 
-SongEval 不在 `fit_pairwise_manifests` 列表里：`gen_full_splits.py` 直接从 `raw_hf/SongEval/metadata.jsonl` 读取 Musicality 均值作为 `score`。
+SongEval is intentionally not in the `fit_pairwise_manifests` list: `gen_full_splits.py` reads `Musicality` averages straight from `raw_hf/SongEval/metadata.jsonl` to form `score`.
 
-产出（全部覆盖旧文件）：
+Outputs (all overwrite the old files):
 - `data/manifests/pairwise_relu/{musicpref_musicality,aime_music_quality,musicarena}_1to5.csv`
 - `data/full_splits/{musicpref,aime,music_arena,songeval}/{train,val,test}.csv`
 - `data/full_splits/all_5_datasets/{train,val,test}.csv`
 
-### 6.2.3 Step-2 full-scale 并发执行（每个 dataset 一张 GPU）
+### 6.2.3 Step-2: Full-Scale Parallel Execution (one GPU per dataset)
 
-parallel runner 默认就把 5 个 dataset 全部排上；在 server 8×H100 下会并发最多 8 个任务（本次实际 5 个）。**关键：`all_5_datasets` 因为要复用单库特征，需和 4 个单库分两次调度**（原因见 §6.3）：
+The parallel runner already schedules all 5 datasets by default; on an 8×H100 server it can run up to 8 concurrent jobs (5 active in this iteration). **Key caveat: `all_5_datasets` must reuse per-DB features and therefore has to be scheduled in a second pass separate from the 4 single DBs** (see §6.3 for why):
 
 ```bash
-# (a) 先并发 4 个单库：特征抽取 + 7 个 CNN 训练
+# (a) First pass: run the 4 single DBs concurrently — feature extraction + 7 CNN trainings
 FULL_CFG=phase7_release/config/data/full_datasets.yaml
-#  -> 编辑 full_datasets.yaml，将 execution.include_scopes 临时改成
-#     ["large_scale_single"]，或用下面 --full-config 指向一份覆盖版。
+#  -> Edit full_datasets.yaml so execution.include_scopes is temporarily
+#     ["large_scale_single"], or pass --full-config pointing at an overlay copy.
 
 conda run -n torch21 python phase7_release/scripts/run/run_full_14_experiments_parallel.py \
   --splits clean
 
-# 等 (a) 完成后再跑 (b)：合库；前提是单库特征都写好了。
-#  -> 把 include_scopes 改回 ["large_scale_merged"]，并把
-#     execution.skip_feature_extract 改成 true（不重复抽取；all_5 的训练直接
-#     从单库的 features 目录读 token_loss_path）。
+# Once (a) finishes, run (b): the merged job. Prerequisite: per-DB features exist.
+#  -> Flip include_scopes back to ["large_scale_merged"] and set
+#     execution.skip_feature_extract to true (no re-extraction; all_5 reads
+#     token_loss_path directly from per-DB feature directories).
 conda run -n torch21 python phase7_release/scripts/run/run_full_14_experiments_parallel.py \
   --splits clean
 ```
 
-> 每个 dataset 的子进程还会显示 tqdm 进度条；日志写到 `outputs/run_state/full_parallel_logs/<scope>_<dataset>_clean.log`，汇总写到 `outputs/run_state/full_parallel_summary_clean.csv`。
+> Each dataset child shows a tqdm progress bar; logs go to `outputs/run_state/full_parallel_logs/<scope>_<dataset>_clean.log`, and the summary to `outputs/run_state/full_parallel_summary_clean.csv`.
 
-### 6.2.4 Step-3 汇总与自检
+### 6.2.4 Step-3: Aggregation and Sanity Check
 
-parallel runner 自动为每个 dataset 在子进程最后一步跑 `scripts/eval/eval_14_experiments.py`；它会把 7 个 `f0?_*_cnn_clean_test_scores.csv` 汇总成：
+The parallel runner automatically runs `scripts/eval/eval_14_experiments.py` as the last step of each dataset's child process; it aggregates the 7 `f0?_*_cnn_clean_test_scores.csv` files into:
 
 - `outputs/full/reports/<dataset>/clean/tables/aggregate_table_14_experiments_clean.{csv,md}`
-- `outputs/full/reports/<dataset>/clean/plots/` 下的散点图
+- Scatter plots under `outputs/full/reports/<dataset>/clean/plots/`.
 
-server 侧推荐的自检：
+Recommended server-side sanity check:
 
 ```bash
-# 5 个 dataset 都有 summary + 7 条 test_scores
+# All 5 datasets should have one summary + 7 test-score CSVs
 for ds in musicpref aime music_arena songeval all_5_datasets; do
   ls phase7_release/outputs/full/reports/${ds}/clean/tables/aggregate_table_14_experiments_clean.md || echo "MISSING ${ds}"
   ls phase7_release/outputs/full/reports/${ds}/clean/f0?_*_cnn_clean_test_scores.csv | wc -l
@@ -310,58 +309,58 @@ done
 
 ---
 
-## 6.3 重提特征 / 重训练 的确切矩阵
+## 6.3 Exact Re-extraction / Retraining Matrix
 
-这是 1st_iter_plan 之前 `阶段 B` 第 3 步一句话带过的东西，显式展开。
+This expands the one-line note Phase B §3 used to have.
 
-| dataset | 打分是否变 | 音频窗口是否变 | 需要重提 loss/entropy/sae？ | 需要重训 7 个 CNN？ |
+| dataset | scoring changed? | audio window changed? | re-extract loss/entropy/sae? | retrain 7 CNNs? |
 |---|---|---|---|---|
-| `musiceval` | 否 | 否 | **否**（整个子目录不动） | **否** |
-| `musicpref` | 是（Elo × musicality-only） | 否（仍 30 s 截取） | **实际不需要**，extract_flags 与旧规则一致；但 Step-0 既然没清特征，parallel runner 的 extract step 会以 skip-if-exists 形式快速跳过（最多 manifest 重写） | 是（分数变了） |
-| `aime` | 是（系统 Elo + logit winrate） | 是（10 s rater 窗口 via `begin_s/end_s`） | **是** | 是 |
-| `music_arena` | 是（系统 Elo + 4-outcome 软目标） | 是（rater ≤180 s → 30 s chunk → pool 1500） | **是** | 是 |
-| `songeval` | 是（只取 Musicality 均值） | 是（全曲 → 30 s chunk → pool 1500） | **是** | 是 |
-| `all_5_datasets` | 是（由上面 4 个变化传导） | 特征直接 **复用** 各单库的特征目录 | **否**（不重新抽；见 §6.3.1） | 是 |
+| `musiceval` | no | no | **no** (subtree left alone) | **no** |
+| `musicpref` | yes (Elo × musicality-only) | no (still 30 s clips) | **not strictly needed**: `extract_flags` match the old rule; but Step-0 does not wipe these features, and the parallel runner's extract step will fast-skip them (manifest may be rewritten). | yes (scores changed) |
+| `aime` | yes (system Elo + logit winrate) | yes (10 s rater window via `begin_s/end_s`) | **yes** | yes |
+| `music_arena` | yes (system Elo + 4-outcome soft target) | yes (rater ≤ 180 s → 30 s chunks → pool 1500) | **yes** | yes |
+| `songeval` | yes (Musicality mean only) | yes (full song → 30 s chunks → pool 1500) | **yes** | yes |
+| `all_5_datasets` | yes (inherited from the 4 above) | features are **reused** directly from per-DB feature directories | **no** (no re-extraction; see §6.3.1) | yes |
 
-### 6.3.1 `all_5_datasets` 的特征必须"复用"而非"重抽"
+### 6.3.1 `all_5_datasets` Features Must Be *Reused*, Not *Re-extracted*
 
-`full_datasets.yaml` 里合库的 `extract_flags: {}` 是空的 —— 如果对合库跑一次 extractor，会用 **默认 30 s / 无 chunk** 的全局规则处理 SongEval / MusicArena 的整曲 / 长片段数据，结果是错的。正确做法：
+The merged entry in `full_datasets.yaml` has an empty `extract_flags: {}` — if you actually invoked the extractors on the merged split, the SongEval / MusicArena full-song / long-clip data would be processed with the **default 30 s, no-chunk** global rule, which is wrong. The correct procedure:
 
-1. 先完成 §6.2.3 (a)：单库 extract 把 `outputs/full/features/{loss,entropy,sae}/<dataset>/clean/` 写满。
-2. 合库训练时 **不再调 extractor**：在 `full_datasets.yaml::execution` 把 `skip_feature_extract` 设 `true` 再跑第二次 parallel runner（§6.2.3 (b)）。
-3. `all_5_datasets/{train,val,test}.csv` 里每行的 `token_loss_path` 已经是 `<source>/<file>` 形态（`gen_full_splits.py` 的输出约定），合库 runner 的 `token_loss_root` 需要指向 `outputs/full/features/loss/`（**parent**）而不是 `.../loss/all_5_datasets/clean/`。当前 `run_full_14_experiments_parallel.py::_build_jobs` 对 `all_5_datasets` 也会写子目录，需要一个 **小补丁**：对 `name == "all_5_datasets"` 时把 `token_loss_root / features_entropy / sae.output_dir` 设成单库共用的 parent 目录，并强制 `--skip-feature-extract`。
+1. First finish §6.2.3 (a): per-DB extract populates `outputs/full/features/{loss,entropy,sae}/<dataset>/clean/`.
+2. When training the merged dataset, **do not invoke extractors**: set `skip_feature_extract: true` in `full_datasets.yaml::execution` and invoke the parallel runner a second time (§6.2.3 (b)).
+3. Every row's `token_loss_path` in `all_5_datasets/{train,val,test}.csv` is already in `<source>/<file>` form (the output convention of `gen_full_splits.py`), so the merged runner's `token_loss_root` must point at `outputs/full/features/loss/` (**the parent**) rather than `.../loss/all_5_datasets/clean/`. The current `run_full_14_experiments_parallel.py::_build_jobs` writes a per-dataset subdirectory even for `all_5_datasets`; a **small patch** is needed: when `name == "all_5_datasets"`, set `token_loss_root / features_entropy / sae.output_dir` to the shared parent directory and force `--skip-feature-extract`.
 
-这步代码补丁没在阶段 A 里包含，建议在阶段 A 7 步完成后、阶段 B 之前单独做；复杂度 < 30 行改动。
+This patch is not part of Phase A; the recommendation is to land it after Phase A's 7 items finish and before Phase B runs — complexity < 30 lines.
 
 ---
 
-## 7. 2nd iter —— AIME 音频文件名修复（方案 B）
+## 7. 2nd Iter — AIME Audio Filename Fix (Option B)
 
-> **一键入口**：`phase7_release/scripts/run/2nd_iter.sh`
-> 仅在 1st iter 完成后、server 上观察到 AIME 相关性卡在 ~0.3 时执行。
-> 只改 AIME + `all_5_datasets` 的产物，其余 4 个库（musicpref / musicarena / songeval / musiceval）**不触碰**。
+> **Entry point**: `phase7_release/scripts/run/2nd_iter.sh`
+> Only run this after the 1st iter completes, when the server shows AIME correlation stuck around ~0.3.
+> Touches only AIME + `all_5_datasets`; the other four DBs (musicpref / musicarena / songeval / musiceval) are **not touched**.
 
-### 7.1 Bug 根因
+### 7.1 Root Cause
 
-- 老版 `phase7_release/scripts/data/hf_ingest_smoke.py` 用 `row_index` 命名 WAV：`AIME2025_0.wav`, `AIME2025_1.wav`, ...。
-- `phase7_release/scripts/data/aime_join_survey.py` 用 HF `track_1_id` / `track_2_id`（整数，5 位 zfill 成 `"05331"`）作为 track 键；`fit_pairwise_manifests.py` 的 AIME manifest 因此以 `track_id` 串号。
-- `gen_full_splits.py::_build_aime` 读 manifest 时 pandas 把 `"05331"` 再转成 `5331`（int），于是构造出的 `audio_path` 是 `AIME2025_5331.wav`。
-- 两套命名（`<row_index>` vs `<track_id>`）不在同一坐标系：只有当 HF `disco-eth/AIME` 恰好按 `id` 升序排列、且 `id` 不带 leading zero 时才会意外对上。否则 label 和 audio 解耦，模型学的是"随机 label-音频对"，Pearson 在 ~0.3 附近。
+- The old `phase7_release/scripts/data/hf_ingest_smoke.py` named WAVs by `row_index`: `AIME2025_0.wav`, `AIME2025_1.wav`, ....
+- `phase7_release/scripts/data/aime_join_survey.py` keys tracks by the HF `track_1_id / track_2_id` (integer, zero-padded to 5 digits, e.g. `"05331"`); the AIME manifest produced by `fit_pairwise_manifests.py` is therefore indexed by `track_id`.
+- When `gen_full_splits.py::_build_aime` reads that manifest, pandas silently coerces `"05331"` back to the integer `5331`, so the constructed `audio_path` becomes `AIME2025_5331.wav`.
+- The two naming schemes (`<row_index>` vs `<track_id>`) are in different coordinate systems: they only accidentally line up when HF `disco-eth/AIME` happens to be sorted by `id` and the `id` has no leading zeros. Otherwise labels and audio decouple, the model learns from a random audio-label pairing, and Pearson hovers around 0.3.
 
-### 7.2 方案 B（本仓库已实现的代码改动）
+### 7.2 Option B (the code changes already landed in this repo)
 
-| 文件 | 改动 |
+| file | change |
 |---|---|
-| `phase7_release/scripts/data/hf_ingest_smoke.py` | 优先用 `row["id"]`（兜底顺序 `id → item_id → track_id → track_id_str`）作为文件名 stem，写出 `AIME2025_<id>.wav`；master CSV 同时记录 `id` 与 `row_index` 便于排查。 |
-| `phase7_release/scripts/data/gen_full_splits.py::_build_aime` | `pd.read_csv(..., dtype={"track_id": str})` 避免 pandas 把 `"05331"` 转成 `5331`；新 helper `_aime_audio_path()` 先尝试 5 位 zfill（`AIME2025_05331.wav`），再回退到无 pad（`AIME2025_5331.wav`），两种 HF id 格式都能命中；`_aime_token_loss_path()` 复用实际命中的 stem 保证 loss/entropy/SAE 路径与音频同名。 |
+| `phase7_release/scripts/data/hf_ingest_smoke.py` | Uses `row["id"]` as the filename stem (fallback order `id → item_id → track_id → track_id_str`), producing `AIME2025_<id>.wav`; the master CSV records both `id` and `row_index` for diagnostics. |
+| `phase7_release/scripts/data/gen_full_splits.py::_build_aime` | `pd.read_csv(..., dtype={"track_id": str})` prevents pandas from coercing `"05331"` back to `5331`. A new `_aime_audio_path()` helper first tries the 5-digit zfill form (`AIME2025_05331.wav`) and falls back to the bare integer (`AIME2025_5331.wav`), so both HF id conventions resolve. `_aime_token_loss_path()` reuses whichever stem actually hit, keeping loss/entropy/SAE filenames aligned with the audio. |
 
-> **其他库不受此 bug 影响**：MusicPref / MusicArena / SongEval / MusicEval 的 `audio_path` 都由 manifest 直接携带，不依赖 `row_index → filename` 的隐式映射，无需重抽。
+> **Other DBs are unaffected by this bug**: MusicPref / MusicArena / SongEval / MusicEval all carry `audio_path` directly in their manifests and do not rely on an implicit `row_index → filename` mapping; no re-extraction is needed.
 
-### 7.3 server 侧执行顺序（由 `2nd_iter.sh` 编排）
+### 7.3 Server-side Execution Order (orchestrated by `2nd_iter.sh`)
 
-支持 `--skip-{ingest,clean,scoring,singles,merged}` 与 `--dry-run`。overlay 写到 `phase7_release/outputs/run_state/2nd_iter/full_datasets_{single_aime_only,merged}.yaml`，**不改** `config/data/full_datasets.yaml`。
+Supports `--skip-{ingest,clean,scoring,singles,merged}` and `--dry-run`. Overlays go to `phase7_release/outputs/run_state/2nd_iter/full_datasets_{single_aime_only,merged}.yaml`; `config/data/full_datasets.yaml` is **not mutated**.
 
-1. **Stage 0：重抽 AIME 音频（id-aware）**
+1. **Stage 0: Re-ingest AIME audio (id-aware)**
 
    ```bash
    rm -rf phase7_release/datasets/aime/audio
@@ -373,24 +372,24 @@ done
      --max-samples 0
    ```
 
-2. **Stage 1：只清 AIME + all_5 的旧产物**（manifest / full_splits / features / checkpoints / reports / run_state），其他 3 个单库产物保留。
-3. **Stage 2：重打分 AIME → `gen_full_splits` → `merge_all_datasets`**（只 AIME 分数是新的；别的库 manifest 未变，`gen_full_splits` 对它们是幂等重写）。
-4. **Stage 3a：parallel runner，只把 AIME 在 `large_scale_single` overlay 里 `enabled: true`**，其他单库置 `enabled: false`；extract + train 只跑 AIME。
-5. **Stage 3b：parallel runner，`large_scale_merged` + `skip_feature_extract: true`**，训 all_5 CNN（依赖 §6.3.1 补丁）。
-6. **Stage 4 自检**：AIME + all_5 的 summary 表 + 7 条 `f0?_*_cnn_clean_test_scores.csv`。
+2. **Stage 1: Clean only AIME + all_5 artifacts** (manifest / full_splits / features / checkpoints / reports / run_state); the other three single-DB artifacts stay.
+3. **Stage 2: Re-score AIME → `gen_full_splits` → `merge_all_datasets`** (only AIME's score is new; the other DBs' manifests are unchanged and `gen_full_splits` is idempotent for them).
+4. **Stage 3a: parallel runner, with only AIME `enabled: true` in the `large_scale_single` overlay** and the others `enabled: false`; extract + train AIME.
+5. **Stage 3b: parallel runner, `large_scale_merged` + `skip_feature_extract: true`**, trains the all_5 CNNs (depends on the §6.3.1 patch).
+6. **Stage 4 sanity check**: AIME + all_5 summary tables + 7 `f0?_*_cnn_clean_test_scores.csv` each.
 
-### 7.4 常用入口
+### 7.4 Common Entry Points
 
 ```bash
-# 完整 2nd iter 增量：
+# Full 2nd-iter delta:
 bash phase7_release/scripts/run/2nd_iter.sh
 
-# 音频已重抽过，只想重训 AIME + all_5：
+# Audio already re-ingested; only retrain AIME + all_5:
 bash phase7_release/scripts/run/2nd_iter.sh --skip-ingest
 
-# 只重跑 AIME single（跳过合库）：
+# Only re-run AIME single (skip merged):
 bash phase7_release/scripts/run/2nd_iter.sh --skip-merged
 
-# 只重跑合库 all_5（AIME 已训好）：
+# Only re-run merged all_5 (AIME already trained):
 bash phase7_release/scripts/run/2nd_iter.sh --skip-ingest --skip-clean --skip-scoring --skip-singles
 ```
