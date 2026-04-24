@@ -3,23 +3,35 @@
 # phase7_release/doc/plan/1st_iter_plan.md in order.
 #
 # Stages:
-#   (0) clean stale artifacts for 4 single DBs + all_5_datasets (never touches
-#       MusicEval; never touches MusicPref features because the 30s window is
-#       unchanged).
-#   (1) re-score (Elo) + gen_full_splits + merge_all_datasets (CPU only).
-#   (2a) full parallel runner, scope=large_scale_single
-#        -> extract features for AIME / MusicArena / SongEval (MusicPref is a
-#           no-op) and train 7 CNNs per DB.
-#   (2b) full parallel runner, scope=large_scale_merged, skip_feature_extract
+#   (0) re-ingest AIME audio with id-aware filenames (``AIME2025_<id>.wav``
+#       instead of ``AIME2025_<row_index>.wav``).  Required so that
+#       ``gen_full_splits.py::_build_aime`` can line up track_id-keyed labels
+#       with on-disk WAVs; without this the old row-index filenames break
+#       AIME label/audio alignment and pin its correlation near 0.3.
+#   (1) clean stale artifacts for the 4 re-scored single DBs + all_5_datasets
+#       (never touches MusicEval).  MusicPref **feature curves** are kept
+#       because the 30-s window is unchanged, but its feature-level manifests
+#       (``loss_manifest_*.csv``, ``split_*.csv``, ``entropy_manifest_*.csv``)
+#       and all cached runtime_splits/runtime_configs/full_generated_configs
+#       are wiped so that the new Elo scores re-link cleanly without
+#       "double-prefix" stale paths being reused.
+#   (2) re-score (Elo) + gen_full_splits + merge_all_datasets (CPU only).
+#   (3a) full parallel runner, scope=large_scale_single
+#        -> extract features for AIME / MusicArena / SongEval (MusicPref is
+#           a no-op that only rebuilds the loss/entropy manifests + relinked
+#           split), then train 7 CNNs per DB.
+#   (3b) full parallel runner, scope=large_scale_merged, skip_feature_extract
 #        -> train 7 CNNs on all_5_datasets, reusing per-DB features.
-#   (3) self-check: verify summary tables + test score CSVs are present.
+#   (4) self-check: verify summary tables + test score CSVs are present.
 #
-# Stage (2b) depends on a small patch described in §6.3.1 that makes
-# ``run_full_14_experiments_parallel.py::_build_jobs`` point the merged job's
-# feature roots at the **parent** ``outputs/full/features/{loss,entropy,sae}/``
-# directory instead of ``.../all_5_datasets/clean/``. Without that patch the
-# merged training will not find per-DB features, and this script will warn +
-# exit non-zero before launching stage (2b).
+# Stage (3b) relies on the §6.3.1 patch in
+# ``run_full_14_experiments_parallel.py::_build_jobs``: for
+# ``name == "all_5_datasets"`` the merged job's feature roots
+# (``token_loss_root`` / ``features_entropy`` / ``sae.output_dir``) are
+# redirected to the **parent** ``outputs/full/features/{loss,entropy,sae}/``
+# directory, and ``--skip-feature-extract`` is forced regardless of the
+# overlay's ``execution.skip_feature_extract``.  The patch is already applied;
+# no extra guard is needed here.
 
 set -euo pipefail
 
@@ -30,6 +42,7 @@ MUSICDISCOVERY_ENV="${MUSICDISCOVERY_ENV:-musicdiscovery310}"
 AUDIOBOX_ENV="${AUDIOBOX_ENV:-audiobox}"
 SPLITS="${SPLITS:-clean}"
 
+SKIP_INGEST=0
 SKIP_CLEAN=0
 SKIP_SCORING=0
 SKIP_SINGLES=0
@@ -42,16 +55,17 @@ Usage: 1st_iter.sh [options]
 
 Environment overrides:
   PROJECT_ROOT          Repo root (auto-detected if unset).
-  TORCH_ENV             conda env for rescoring + entropy/loss extract + training (default: torch21).
+  TORCH_ENV             conda env for ingest + rescoring + entropy/loss extract + training (default: torch21).
   MUSICDISCOVERY_ENV    conda env for SAE extract (default: musicdiscovery310).
   AUDIOBOX_ENV          conda env for audiobox baseline (default: audiobox).
   SPLITS                split tag forwarded to the parallel runner (default: clean).
 
 Options:
-  --skip-clean          Skip stage (0): clean stale artifacts.
-  --skip-scoring        Skip stage (1): rescore + gen_full_splits + merge.
-  --skip-singles        Skip stage (2a): parallel run for 4 single DBs.
-  --skip-merged         Skip stage (2b): parallel run for all_5_datasets.
+  --skip-ingest         Skip stage (0): re-ingest AIME audio.
+  --skip-clean          Skip stage (1): clean stale artifacts.
+  --skip-scoring        Skip stage (2): rescore + gen_full_splits + merge.
+  --skip-singles        Skip stage (3a): parallel run for 4 single DBs.
+  --skip-merged         Skip stage (3b): parallel run for all_5_datasets.
   --dry-run             Print commands that would run, but do not execute.
   -h, --help            Show this help.
 
@@ -59,16 +73,20 @@ Examples:
   # First run after fresh pull, full pipeline:
   bash phase7_release/scripts/run/1st_iter.sh
 
-  # Re-run only the single-DB parallel stage (skip everything else):
-  bash phase7_release/scripts/run/1st_iter.sh --skip-clean --skip-scoring --skip-merged
+  # AIME audio already re-ingested (e.g. script re-run after crash):
+  bash phase7_release/scripts/run/1st_iter.sh --skip-ingest
 
-  # Re-run only the merged stage (requires §6.3.1 patch):
-  bash phase7_release/scripts/run/1st_iter.sh --skip-clean --skip-scoring --skip-singles
+  # Re-run only the single-DB parallel stage (skip everything else):
+  bash phase7_release/scripts/run/1st_iter.sh --skip-ingest --skip-clean --skip-scoring --skip-merged
+
+  # Re-run only the merged stage (per-DB features + splits must already exist):
+  bash phase7_release/scripts/run/1st_iter.sh --skip-ingest --skip-clean --skip-scoring --skip-singles
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --skip-ingest)   SKIP_INGEST=1; shift ;;
     --skip-clean)    SKIP_CLEAN=1; shift ;;
     --skip-scoring)  SKIP_SCORING=1; shift ;;
     --skip-singles)  SKIP_SINGLES=1; shift ;;
@@ -107,28 +125,75 @@ run_sh() {
 }
 
 # -------------------------------------------------------------------- stage 0
+# Re-ingest AIME audio using the id-aware hf_ingest_smoke.py.  This wipes
+# ``phase7_release/datasets/aime/audio/`` so the old row-index-named WAVs
+# cannot be picked up accidentally.
+if [[ "${SKIP_INGEST}" == "0" ]]; then
+  echo "======================================================================"
+  echo "[stage 0/4] re-ingest AIME audio (id-aware filenames)"
+  echo "======================================================================"
+  run_sh 'rm -rf phase7_release/datasets/aime/audio'
+  run_sh 'mkdir -p phase7_release/datasets/aime/audio'
+  run conda run --no-capture-output -n "${TORCH_ENV}" python \
+    phase7_release/scripts/data/hf_ingest_smoke.py \
+    --repo disco-eth/AIME --source-tag AIME2025 \
+    --out-audio-dir phase7_release/datasets/aime/audio \
+    --master-csv phase7_release/data/manifests/master_index.csv \
+    --max-samples 0
+else
+  echo "[stage 0/4] SKIPPED (--skip-ingest)"
+fi
+
+# -------------------------------------------------------------------- stage 1
 if [[ "${SKIP_CLEAN}" == "0" ]]; then
   echo "======================================================================"
-  echo "[stage 0/4] clean stale manifests / splits / features / reports"
+  echo "[stage 1/4] clean stale manifests / splits / features / reports"
   echo "======================================================================"
-  # 0.1 old score manifests (overwritten ones + permanently removed fidelity / alignment)
+  # 1.1 old score manifests (overwritten ones + permanently removed fidelity / alignment)
   run_sh 'rm -f phase7_release/data/manifests/pairwise_relu/{musicpref_musicality,aime_music_quality,musicarena}_1to5.csv'
   run_sh 'rm -f phase7_release/data/manifests/pairwise_relu/{musicpref_fidelity,aime_text_audio_alignment}_1to5.csv'
 
-  # 0.2 old full_splits (MusicEval retained)
+  # 1.2 old full_splits (MusicEval retained)
   for ds in musicpref aime music_arena songeval all_5_datasets; do
     run_sh "rm -rf phase7_release/data/full_splits/${ds}"
   done
 
-  # 0.3 old features: AIME / MusicArena / SongEval / all_5 only.
-  #     MusicPref keeps its 30s features (window unchanged).
+  # 1.3 old features: AIME / MusicArena / SongEval / all_5 wipe the whole
+  #     subtree because the audio window changed.  MusicPref keeps its 30-s
+  #     feature curves (window unchanged, order deterministic from sorted
+  #     filenames + fixed seed=42 permutation in gen_full_splits.py); only its
+  #     manifest/relink CSVs are dropped below so the new Elo scores re-bind.
   for ds in aime music_arena songeval all_5_datasets; do
     run_sh "rm -rf phase7_release/outputs/full/features/loss/${ds}"
     run_sh "rm -rf phase7_release/outputs/full/features/entropy/${ds}"
     run_sh "rm -rf phase7_release/outputs/full/features/sae/${ds}"
   done
 
-  # 0.4 old training products + run_state for 5 datasets (everything gets re-trained).
+  # 1.3b feature-layer manifests + relinked splits for all 5 DBs.  These files
+  #      cache the (score, token_loss_path) pairing from the previous run; if
+  #      they survive, extract_loss_curves.py's --skip-existing fast-path
+  #      short-circuits on them and training sees stale scores next to fresh
+  #      audio.  For AIME/MA/SE/all_5 this is redundant with 1.3 (subtree
+  #      already gone), for MusicPref it is the operative cleanup.
+  for ds in musicpref aime music_arena songeval all_5_datasets; do
+    run_sh "rm -f phase7_release/outputs/full/features/loss/${ds}/${SPLITS}/loss_manifest_*.csv"
+    run_sh "rm -f phase7_release/outputs/full/features/loss/${ds}/${SPLITS}/split_*.csv"
+    run_sh "rm -f phase7_release/outputs/full/features/entropy/${ds}/${SPLITS}/entropy_manifest_*.csv"
+  done
+
+  # 1.3c per-run runtime state (split CSVs, scoped configs, per-job generated
+  #      configs).  Run-tag scoped to the 5 DBs above so MusicEval's state is
+  #      not touched.
+  for ds in musicpref aime music_arena songeval all_5_datasets; do
+    run_sh "rm -rf phase7_release/outputs/run_state/runtime_splits/full14_${ds}_${SPLITS}"
+    run_sh "rm -f  phase7_release/outputs/run_state/runtime_configs/full14_${ds}_${SPLITS}.yaml"
+  done
+  for ds in musicpref aime music_arena songeval; do
+    run_sh "rm -f phase7_release/outputs/run_state/full_generated_configs/large_scale_single_${ds}_${SPLITS}.yaml"
+  done
+  run_sh "rm -f phase7_release/outputs/run_state/full_generated_configs/large_scale_merged_all_5_datasets_${SPLITS}.yaml"
+
+  # 1.4 old training products + run_state for 5 datasets (everything gets re-trained).
   for ds in musicpref aime music_arena songeval all_5_datasets; do
     run_sh "rm -rf phase7_release/outputs/full/checkpoints/${ds}"
     run_sh "rm -rf phase7_release/outputs/full/plots/${ds}"
@@ -138,13 +203,13 @@ if [[ "${SKIP_CLEAN}" == "0" ]]; then
     run_sh "rm -f  phase7_release/outputs/run_state/full14_${ds}_${SPLITS}.lock.json"
   done
 else
-  echo "[stage 0/4] SKIPPED (--skip-clean)"
+  echo "[stage 1/4] SKIPPED (--skip-clean)"
 fi
 
-# -------------------------------------------------------------------- stage 1
+# -------------------------------------------------------------------- stage 2
 if [[ "${SKIP_SCORING}" == "0" ]]; then
   echo "======================================================================"
-  echo "[stage 1/4] rescore + gen_full_splits + merge_all_datasets (CPU only)"
+  echo "[stage 2/4] rescore + gen_full_splits + merge_all_datasets (CPU only)"
   echo "======================================================================"
   run conda run --no-capture-output -n "${TORCH_ENV}" python \
     phase7_release/scripts/data/fit_pairwise_manifests.py \
@@ -163,7 +228,7 @@ if [[ "${SKIP_SCORING}" == "0" ]]; then
   run conda run --no-capture-output -n "${TORCH_ENV}" python \
     phase7_release/scripts/data/merge_all_datasets.py
 else
-  echo "[stage 1/4] SKIPPED (--skip-scoring)"
+  echo "[stage 2/4] SKIPPED (--skip-scoring)"
 fi
 
 # Helper: write two overlay copies of full_datasets.yaml.
@@ -174,7 +239,7 @@ if [[ "${SKIP_SINGLES}" == "0" || "${SKIP_MERGED}" == "0" ]]; then
     echo "[dry-run] generate overlay yamls: ${SINGLE_OVERLAY}, ${MERGED_OVERLAY}"
   else
     conda run --no-capture-output -n "${TORCH_ENV}" python - <<PY
-import copy, os, sys
+import copy, os
 import yaml
 
 src = os.path.join("${PROJECT_ROOT}", "${FULL_CFG}")
@@ -203,10 +268,10 @@ PY
   fi
 fi
 
-# ------------------------------------------------------------------- stage 2a
+# ------------------------------------------------------------------- stage 3a
 if [[ "${SKIP_SINGLES}" == "0" ]]; then
   echo "======================================================================"
-  echo "[stage 2a/4] parallel runner: 4 single DBs (extract + train)"
+  echo "[stage 3a/4] parallel runner: 4 single DBs (extract + train)"
   echo "======================================================================"
   run conda run --no-capture-output -n "${TORCH_ENV}" python \
     phase7_release/scripts/run/run_full_14_experiments_parallel.py \
@@ -217,31 +282,20 @@ if [[ "${SKIP_SINGLES}" == "0" ]]; then
     --full-config "${SINGLE_OVERLAY}" \
     --splits "${SPLITS}"
 else
-  echo "[stage 2a/4] SKIPPED (--skip-singles)"
+  echo "[stage 3a/4] SKIPPED (--skip-singles)"
 fi
 
-# ------------------------------------------------------------------- stage 2b
+# ------------------------------------------------------------------- stage 3b
 if [[ "${SKIP_MERGED}" == "0" ]]; then
   echo "======================================================================"
-  echo "[stage 2b/4] parallel runner: all_5_datasets (reuse features, train only)"
+  echo "[stage 3b/4] parallel runner: all_5_datasets (reuse features, train only)"
   echo "======================================================================"
-
-  # Sanity guard for the §6.3.1 patch (feature-reuse for all_5_datasets).
-  patch_token='if name == "all_5_datasets"'
-  if ! grep -q "${patch_token}" \
-       "${PROJECT_ROOT}/phase7_release/scripts/run/run_full_14_experiments_parallel.py"; then
-    echo ""
-    echo "[warn] stage 2b requires the feature-reuse patch from 1st_iter_plan §6.3.1:"
-    echo "       run_full_14_experiments_parallel.py::_build_jobs must override the"
-    echo "       all_5_datasets feature roots to point at the shared parent"
-    echo "       outputs/full/features/{loss,entropy,sae}/ directory."
-    echo "       Without that patch the merged training cannot find per-DB features."
-    echo ""
-    echo "[warn] skipping stage 2b. Re-run with --skip-clean --skip-scoring --skip-singles"
-    echo "       after applying the patch."
-    exit 3
-  fi
-
+  # Feature-reuse is handled by the §6.3.1 patch in
+  # run_full_14_experiments_parallel.py::_build_jobs: for all_5_datasets it
+  # redirects token_loss_root / features_entropy / sae.output_dir to the
+  # parent outputs/full/features/{loss,entropy,sae}/ dirs and forces
+  # --skip-feature-extract.  The merged overlay also sets
+  # execution.skip_feature_extract=true for clarity.
   run conda run --no-capture-output -n "${TORCH_ENV}" python \
     phase7_release/scripts/run/run_full_14_experiments_parallel.py \
     --project-root "${PROJECT_ROOT}" \
@@ -251,12 +305,12 @@ if [[ "${SKIP_MERGED}" == "0" ]]; then
     --full-config "${MERGED_OVERLAY}" \
     --splits "${SPLITS}"
 else
-  echo "[stage 2b/4] SKIPPED (--skip-merged)"
+  echo "[stage 3b/4] SKIPPED (--skip-merged)"
 fi
 
-# --------------------------------------------------------------------- stage 3
+# --------------------------------------------------------------------- stage 4
 echo "======================================================================"
-echo "[stage 3/4] self-check: summary tables + test score CSVs"
+echo "[stage 4/4] self-check: summary tables + test score CSVs"
 echo "======================================================================"
 
 missing=0
