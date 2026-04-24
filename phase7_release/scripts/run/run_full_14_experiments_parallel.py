@@ -22,7 +22,6 @@ class Job:
     config_path: str
     log_path: str
     extract_flags: Dict[str, float]
-    force_skip_feature_extract: bool = False
 
 
 @dataclass
@@ -150,25 +149,6 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
             if "sae" in merged:
                 merged["sae"]["output_dir"] = os.path.join(out_root_rel, "features", "sae", name, split_tag)
 
-            # §6.3.1 patch: all_5_datasets reuses per-DB features.  The merged
-            # split CSVs carry ``token_loss_path = "<source>/<file>"`` (relative
-            # under the parent features/<kind>/ directory, populated by the
-            # per-DB runs in scope=large_scale_single).  Redirect the merged
-            # runner's feature roots to that shared parent and hard-skip any
-            # feature-extract step regardless of execution.skip_feature_extract
-            # on the overlay -- it is unsafe to run extractors here because
-            # full_datasets.yaml::large_scale_merged has empty extract_flags.
-            force_skip_feature_extract = False
-            if name == "all_5_datasets":
-                merged["outputs"]["features_entropy"] = os.path.join(out_root_rel, "features", "entropy")
-                merged["outputs"]["features_loss"] = os.path.join(out_root_rel, "features", "loss")
-                merged["data"]["feature_roots"]["token_loss_root"] = os.path.join(
-                    out_root_rel, "features", "loss"
-                )
-                if "sae" in merged:
-                    merged["sae"]["output_dir"] = os.path.join(out_root_rel, "features", "sae")
-                force_skip_feature_extract = True
-
             cfg_path = os.path.join(generated_cfg_root, f"{scope}_{name}_{split_tag}.yaml")
             _save_yaml(cfg_path, merged)
             log_path = os.path.join(logs_root, f"{scope}_{name}_{split_tag}.log")
@@ -181,7 +161,6 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
             jobs.append(Job(
                 name=name, scope=scope, config_path=cfg_path, log_path=log_path,
                 extract_flags=extract_flags,
-                force_skip_feature_extract=force_skip_feature_extract,
             ))
     return jobs
 
@@ -290,10 +269,7 @@ def main() -> int:
                 ]
                 if not full_cfg_obj.get("execution", {}).get("with_aesthetics", True):
                     cmd.append("--no-with-aesthetics")
-                if (
-                    full_cfg_obj.get("execution", {}).get("skip_feature_extract", False)
-                    or job.force_skip_feature_extract
-                ):
+                if full_cfg_obj.get("execution", {}).get("skip_feature_extract", False):
                     cmd.append("--skip-feature-extract")
                 # Pass-through per-dataset extraction window/chunk/pool flags.
                 ef = job.extract_flags

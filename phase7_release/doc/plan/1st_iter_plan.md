@@ -120,14 +120,12 @@ AIME / MusicPref / MusicArena 在这三个目录下的旧特征在本次迭代�
 ### 3.1 覆盖策略（不改路径）
 
 直接用 runner 的 `--reset-state` 或手动清掉对应 `run_state` 下的 state.json。每一条的"是否真的需要清"详见 §6.3 的矩阵；这里只列出"会被覆盖 / 可能被覆盖"的路径：
-- **会被重写**的音频：`phase7_release/datasets/aime/audio/` —— `hf_ingest_smoke.py` 现在用 HF `id` 作为文件名 stem（`AIME2025_<id>.wav`）；旧的 row-index 命名的 WAV 必须先清掉再重抽，否则 `_build_aime` 把老文件当新文件误用（§6.2.0）。
 - 被覆盖的打分 CSV：`data/manifests/pairwise_relu/{musicpref_musicality,aime_music_quality,musicarena}_1to5.csv`
 - 被覆盖的 splits：`data/full_splits/{musicpref,aime,music_arena,songeval,all_5_datasets}/*.csv`
-- 被覆盖的特征（只 AIME / MusicArena / SongEval 真正需要重提；MusicPref 窗口未变，**特征 curve 可沿用**；all_5 复用单库特征不独立抽）：`outputs/full/features/{entropy,sae,loss}/{aime,music_arena,songeval}/clean/**`
-- 被**清理但不重算**（所有 5 个 DB + all_5）的 manifest / relink 缓存：`outputs/full/features/loss/*/clean/{loss_manifest_*,split_*}.csv`、`outputs/full/features/entropy/*/clean/entropy_manifest_*.csv`、`outputs/run_state/runtime_splits/full14_*_clean/`、`outputs/run_state/runtime_configs/full14_*_clean.yaml`、`outputs/run_state/full_generated_configs/*.yaml`。这是 §6.2.1 新增的一步：这些缓存把上一次 Elo 分数与 `token_loss_path` 绑在一起，不清理的话 extractor 的 `--skip-existing` 会短路到老分数，训练端就会出现"MusicPref 看起来用了新 score 实则读到旧 relink"的情况。
+- 被覆盖的特征（只 AIME / MusicArena / SongEval 真正需要重提；MusicPref 窗口未变可沿用；all_5 复用单库特征不独立抽）：`outputs/full/features/{entropy,sae,loss}/{aime,music_arena,songeval}/clean/**`
 - 被覆盖的训练产物（5 个 dataset 全部重训）：`outputs/full/{checkpoints,plots,reports,logs}/{musicpref,aime,music_arena,songeval,all_5_datasets}/clean/**`
 - 被**清理**（不再生成）的：`data/manifests/pairwise_relu/{musicpref_fidelity,aime_text_audio_alignment}_1to5.csv`
-- **不动**：`musiceval/` 子目录下的任何东西、`data/splits/musiceval/*`、`data/full_splits/musiceval/*`、`outputs/full/*/musiceval/**`、`reports/musiceval/**`、任何 `runtime_splits/full14_musiceval_*` / `runtime_configs/full14_musiceval_*` 运行态。
+- **不动**：`musiceval/` 子目录下的任何东西、`data/splits/musiceval/*`、`data/full_splits/musiceval/*`、`outputs/full/*/musiceval/**`、`reports/musiceval/**`。
 
 ---
 
@@ -204,29 +202,11 @@ AIME / MusicPref / MusicArena 在这三个目录下的旧特征在本次迭代�
 只操作 **clean × CNN × 7** 的 5 个 dataset（`musicpref / aime / songeval / music_arena / all_5_datasets`）；MusicEval 全程不动。
 
 > **一键入口**：`phase7_release/scripts/run/1st_iter.sh`
-> 内部按 §6.2.0 → §6.2.4 顺序依次执行；支持 `--skip-{ingest,clean,scoring,singles,merged}` 和 `--dry-run`。
+> 内部按 §6.2.1 → §6.2.4 顺序依次执行；支持 `--skip-{clean,scoring,singles,merged}` 和 `--dry-run`。
 > overlay 写到 `phase7_release/outputs/run_state/1st_iter/full_datasets_{single,merged}.yaml`，**不改** `config/data/full_datasets.yaml`。
-
-### 6.2.0 Step-(-1) 重抽 AIME 音频（id-aware 文件名）
-
-老版 `hf_ingest_smoke.py` 用 `row_index` 命名 WAV（`AIME2025_0.wav`, `AIME2025_1.wav`, ...），和 `aime_join_survey.py` 用的 `track_id`（5 位 zfill 的整数，如 `"05331"`）不在同一坐标系：只有当 HF `disco-eth/AIME` 恰好按 `id` 升序排列、且 `id` 不带 leading zero 时才会侥幸对上。否则 label 和 audio 解耦，模型学的是"随机 label-音频对"，Pearson 卡在 ~0.3。
-
-现仓库的修法（方案 B）：`hf_ingest_smoke.py` 改成优先用 `row["id"]`（兜底顺序 `id → item_id → track_id → track_id_str`）作为文件名 stem；`gen_full_splits.py::_build_aime` 用 `dtype={"track_id": str}` 保留 `"05331"` 的 zfill，并用 `_aime_audio_path()` 先试 5 位 zfill 再退回无 pad，两种 HF id 格式都能命中。
-
-对应 server 侧只需把旧 WAV 清掉再重抽一次：
-
-```bash
-rm -rf phase7_release/datasets/aime/audio
-mkdir -p phase7_release/datasets/aime/audio
-conda run -n torch21 python phase7_release/scripts/data/hf_ingest_smoke.py \
-  --repo disco-eth/AIME --source-tag AIME2025 \
-  --out-audio-dir phase7_release/datasets/aime/audio \
-  --master-csv phase7_release/data/manifests/master_index.csv \
-  --max-samples 0
-```
-
-> **其他库不受此 bug 影响**：MusicPref / MusicArena / SongEval / MusicEval 的 `audio_path` 都由 manifest 直接携带，不依赖 `row_index → filename` 的隐式映射，无需重抽。
-> 如果 AIME audio 已经是 id-aware 版本（比如脚本崩溃后重跑），用 `1st_iter.sh --skip-ingest` 跳过这步。
+>
+> **AIME 音频文件名修复（方案 B）已从 1st iter 中剥离**，单独由
+> `phase7_release/scripts/run/2nd_iter.sh` 负责；见本文 §7。
 
 ### 6.2.1 Step-0 清旧产物（本地 / server 皆可；只清不生成）
 
@@ -249,26 +229,6 @@ for ds in aime music_arena songeval all_5_datasets; do
          "phase7_release/outputs/full/features/sae/${ds}"
 done
 
-# 3b. 老 manifest / relink 缓存（**5 个 DB 全清**；对 AIME/MA/SE/all_5 与上一步
-#     重复但无害，对 MusicPref 是刚需——否则 extract_loss_curves.py 的
-#     --skip-existing 会拿上一轮 Elo 时写下的 split_{train,val,test}.csv 短路，
-#     训练侧就会出现新 score 却读到旧 relink 的 double-prefix 症状）。
-for ds in musicpref aime music_arena songeval all_5_datasets; do
-  rm -f phase7_release/outputs/full/features/loss/${ds}/clean/loss_manifest_*.csv
-  rm -f phase7_release/outputs/full/features/loss/${ds}/clean/split_*.csv
-  rm -f phase7_release/outputs/full/features/entropy/${ds}/clean/entropy_manifest_*.csv
-done
-
-# 3c. 老 runtime state（run-tag 精确到 5 个 DB；MusicEval 的运行态保留）
-for ds in musicpref aime music_arena songeval all_5_datasets; do
-  rm -rf phase7_release/outputs/run_state/runtime_splits/full14_${ds}_clean
-  rm -f  phase7_release/outputs/run_state/runtime_configs/full14_${ds}_clean.yaml
-done
-for ds in musicpref aime music_arena songeval; do
-  rm -f phase7_release/outputs/run_state/full_generated_configs/large_scale_single_${ds}_clean.yaml
-done
-rm -f phase7_release/outputs/run_state/full_generated_configs/large_scale_merged_all_5_datasets_clean.yaml
-
 # 4. 旧训练产物 + run_state（5 个 dataset）
 for ds in musicpref aime music_arena songeval all_5_datasets; do
   rm -rf "phase7_release/outputs/full/checkpoints/${ds}" \
@@ -280,7 +240,7 @@ for ds in musicpref aime music_arena songeval all_5_datasets; do
 done
 ```
 
-`musiceval/` 子目录、`phase7_release/data/splits/musiceval/`、`outputs/**/musiceval/`、以及 `runtime_splits/full14_musiceval_*` / `runtime_configs/full14_musiceval_*` 全部 **不动**。
+`musiceval/` 子目录、`phase7_release/data/splits/musiceval/`、`outputs/**/musiceval/` 全部 **不动**。
 
 ### 6.2.2 Step-1 重打分 + 重切 split（CPU 单机，无 GPU，秒级-分钟级）
 
@@ -357,7 +317,7 @@ done
 | dataset | 打分是否变 | 音频窗口是否变 | 需要重提 loss/entropy/sae？ | 需要重训 7 个 CNN？ |
 |---|---|---|---|---|
 | `musiceval` | 否 | 否 | **否**（整个子目录不动） | **否** |
-| `musicpref` | 是（Elo × musicality-only） | 否（仍 30 s 截取） | **不需要重算 curve**：extract_flags 与旧规则一致，Step-0 只清 `loss_manifest_* / split_* / entropy_manifest_* / runtime_*` 缓存，feature curve（`features/loss/musicpref/clean/<split>/<md5>_loss.csv` 以及 entropy / SAE 对应文件）保留。parallel runner 走 `_build_manifest_from_existing` 路径重建 manifest + relinked split，MusicGen/SAE forward pass **不会重跑**。 | 是（分数变了） |
+| `musicpref` | 是（Elo × musicality-only） | 否（仍 30 s 截取） | **实际不需要**，extract_flags 与旧规则一致；但 Step-0 既然没清特征，parallel runner 的 extract step 会以 skip-if-exists 形式快速跳过（最多 manifest 重写） | 是（分数变了） |
 | `aime` | 是（系统 Elo + logit winrate） | 是（10 s rater 窗口 via `begin_s/end_s`） | **是** | 是 |
 | `music_arena` | 是（系统 Elo + 4-outcome 软目标） | 是（rater ≤180 s → 30 s chunk → pool 1500） | **是** | 是 |
 | `songeval` | 是（只取 Musicality 均值） | 是（全曲 → 30 s chunk → pool 1500） | **是** | 是 |
@@ -371,33 +331,66 @@ done
 2. 合库训练时 **不再调 extractor**：在 `full_datasets.yaml::execution` 把 `skip_feature_extract` 设 `true` 再跑第二次 parallel runner（§6.2.3 (b)）。
 3. `all_5_datasets/{train,val,test}.csv` 里每行的 `token_loss_path` 已经是 `<source>/<file>` 形态（`gen_full_splits.py` 的输出约定），合库 runner 的 `token_loss_root` 需要指向 `outputs/full/features/loss/`（**parent**）而不是 `.../loss/all_5_datasets/clean/`。当前 `run_full_14_experiments_parallel.py::_build_jobs` 对 `all_5_datasets` 也会写子目录，需要一个 **小补丁**：对 `name == "all_5_datasets"` 时把 `token_loss_root / features_entropy / sae.output_dir` 设成单库共用的 parent 目录，并强制 `--skip-feature-extract`。
 
-**补丁已落地**（`run_full_14_experiments_parallel.py::_build_jobs`）：
-
-- `Job` 新增 `force_skip_feature_extract: bool = False` 字段。
-- `_build_jobs` 里 `if name == "all_5_datasets":` 分支把以下四个键重新指向 parent 目录：
-  - `merged["outputs"]["features_loss"]   = outputs/full/features/loss`
-  - `merged["outputs"]["features_entropy"] = outputs/full/features/entropy`
-  - `merged["data"]["feature_roots"]["token_loss_root"] = outputs/full/features/loss`
-  - `merged["sae"]["output_dir"]          = outputs/full/features/sae`
-  - 并把该 job 的 `force_skip_feature_extract = True`。
-- launch 处追加 `--skip-feature-extract`，条件从 `execution.skip_feature_extract` 或 `job.force_skip_feature_extract` 取或。
-
-结果：`1st_iter.sh` stage 3b 不再需要 sanity-guard，直接走 `MERGED_OVERLAY`（本身也把 `execution.skip_feature_extract` 设成 true，作为第二道保险）。
+这步代码补丁没在阶段 A 里包含，建议在阶段 A 7 步完成后、阶段 B 之前单独做；复杂度 < 30 行改动。
 
 ---
 
-## 7. `1st_iter.sh` 常用入口
+## 7. 2nd iter —— AIME 音频文件名修复（方案 B）
+
+> **一键入口**：`phase7_release/scripts/run/2nd_iter.sh`
+> 仅在 1st iter 完成后、server 上观察到 AIME 相关性卡在 ~0.3 时执行。
+> 只改 AIME + `all_5_datasets` 的产物，其余 4 个库（musicpref / musicarena / songeval / musiceval）**不触碰**。
+
+### 7.1 Bug 根因
+
+- 老版 `phase7_release/scripts/data/hf_ingest_smoke.py` 用 `row_index` 命名 WAV：`AIME2025_0.wav`, `AIME2025_1.wav`, ...。
+- `phase7_release/scripts/data/aime_join_survey.py` 用 HF `track_1_id` / `track_2_id`（整数，5 位 zfill 成 `"05331"`）作为 track 键；`fit_pairwise_manifests.py` 的 AIME manifest 因此以 `track_id` 串号。
+- `gen_full_splits.py::_build_aime` 读 manifest 时 pandas 把 `"05331"` 再转成 `5331`（int），于是构造出的 `audio_path` 是 `AIME2025_5331.wav`。
+- 两套命名（`<row_index>` vs `<track_id>`）不在同一坐标系：只有当 HF `disco-eth/AIME` 恰好按 `id` 升序排列、且 `id` 不带 leading zero 时才会意外对上。否则 label 和 audio 解耦，模型学的是"随机 label-音频对"，Pearson 在 ~0.3 附近。
+
+### 7.2 方案 B（本仓库已实现的代码改动）
+
+| 文件 | 改动 |
+|---|---|
+| `phase7_release/scripts/data/hf_ingest_smoke.py` | 优先用 `row["id"]`（兜底顺序 `id → item_id → track_id → track_id_str`）作为文件名 stem，写出 `AIME2025_<id>.wav`；master CSV 同时记录 `id` 与 `row_index` 便于排查。 |
+| `phase7_release/scripts/data/gen_full_splits.py::_build_aime` | `pd.read_csv(..., dtype={"track_id": str})` 避免 pandas 把 `"05331"` 转成 `5331`；新 helper `_aime_audio_path()` 先尝试 5 位 zfill（`AIME2025_05331.wav`），再回退到无 pad（`AIME2025_5331.wav`），两种 HF id 格式都能命中；`_aime_token_loss_path()` 复用实际命中的 stem 保证 loss/entropy/SAE 路径与音频同名。 |
+
+> **其他库不受此 bug 影响**：MusicPref / MusicArena / SongEval / MusicEval 的 `audio_path` 都由 manifest 直接携带，不依赖 `row_index → filename` 的隐式映射，无需重抽。
+
+### 7.3 server 侧执行顺序（由 `2nd_iter.sh` 编排）
+
+支持 `--skip-{ingest,clean,scoring,singles,merged}` 与 `--dry-run`。overlay 写到 `phase7_release/outputs/run_state/2nd_iter/full_datasets_{single_aime_only,merged}.yaml`，**不改** `config/data/full_datasets.yaml`。
+
+1. **Stage 0：重抽 AIME 音频（id-aware）**
+
+   ```bash
+   rm -rf phase7_release/datasets/aime/audio
+   mkdir -p phase7_release/datasets/aime/audio
+   conda run -n torch21 python phase7_release/scripts/data/hf_ingest_smoke.py \
+     --repo disco-eth/AIME --source-tag AIME2025 \
+     --out-audio-dir phase7_release/datasets/aime/audio \
+     --master-csv phase7_release/data/manifests/master_index.csv \
+     --max-samples 0
+   ```
+
+2. **Stage 1：只清 AIME + all_5 的旧产物**（manifest / full_splits / features / checkpoints / reports / run_state），其他 3 个单库产物保留。
+3. **Stage 2：重打分 AIME → `gen_full_splits` → `merge_all_datasets`**（只 AIME 分数是新的；别的库 manifest 未变，`gen_full_splits` 对它们是幂等重写）。
+4. **Stage 3a：parallel runner，只把 AIME 在 `large_scale_single` overlay 里 `enabled: true`**，其他单库置 `enabled: false`；extract + train 只跑 AIME。
+5. **Stage 3b：parallel runner，`large_scale_merged` + `skip_feature_extract: true`**，训 all_5 CNN（依赖 §6.3.1 补丁）。
+6. **Stage 4 自检**：AIME + all_5 的 summary 表 + 7 条 `f0?_*_cnn_clean_test_scores.csv`。
+
+### 7.4 常用入口
 
 ```bash
-# 完整 1st iter（重抽 AIME → 清理 → 重打分 → 单库并行 → 合库并行 → 自检）：
-bash phase7_release/scripts/run/1st_iter.sh
+# 完整 2nd iter 增量：
+bash phase7_release/scripts/run/2nd_iter.sh
 
-# AIME 音频已经是 id-aware 版本（脚本崩溃后续跑）：
-bash phase7_release/scripts/run/1st_iter.sh --skip-ingest
+# 音频已重抽过，只想重训 AIME + all_5：
+bash phase7_release/scripts/run/2nd_iter.sh --skip-ingest
 
-# 打分 + 特征 + 单库都完成了，只重跑合库（§6.3.1 补丁已落地，单库特征目录必须已经存在）：
-bash phase7_release/scripts/run/1st_iter.sh --skip-ingest --skip-clean --skip-scoring --skip-singles
+# 只重跑 AIME single（跳过合库）：
+bash phase7_release/scripts/run/2nd_iter.sh --skip-merged
 
-# 本地试运行看看会跑哪些命令：
-bash phase7_release/scripts/run/1st_iter.sh --dry-run
+# 只重跑合库 all_5（AIME 已训好）：
+bash phase7_release/scripts/run/2nd_iter.sh --skip-ingest --skip-clean --skip-scoring --skip-singles
 ```
