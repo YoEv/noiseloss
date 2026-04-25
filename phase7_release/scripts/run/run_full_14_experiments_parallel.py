@@ -22,14 +22,20 @@ class Job:
     config_path: str
     log_path: str
     extract_flags: Dict[str, float]
+    gpus_per_job: int = 1
+    only_steps: str = ""
 
 
 @dataclass
 class RunningJob:
     job: Job
-    gpu_id: int
+    gpu_ids: List[int]
     process: subprocess.Popen
     started_at: float
+
+    @property
+    def gpu_id(self) -> int:
+        return self.gpu_ids[0]
 
 
 def _now_iso() -> str:
@@ -169,9 +175,11 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
                 "pool_to_frames": int(ef.get("pool_to_frames", 0) or 0),
                 "max_audio_sec": float(ef.get("max_audio_sec", 0.0) or 0.0),
             }
+            gpus_per_job = int(entry.get("gpus_per_job", 1) or 1)
+            only_steps = str(entry.get("only_steps", "") or "")
             jobs.append(Job(
                 name=name, scope=scope, config_path=cfg_path, log_path=log_path,
-                extract_flags=extract_flags,
+                extract_flags=extract_flags, gpus_per_job=gpus_per_job, only_steps=only_steps,
             ))
     return jobs
 
@@ -229,11 +237,12 @@ def main() -> int:
                 still_running.append(rj)
                 continue
             elapsed = int(time.time() - rj.started_at)
+            gpu_str = ",".join(str(g) for g in rj.gpu_ids)
             results.append(
                 {
                     "scope": rj.job.scope,
                     "dataset": rj.job.name,
-                    "gpu_id": str(rj.gpu_id),
+                    "gpu_id": gpu_str,
                     "exit_code": str(code),
                     "elapsed_sec": str(elapsed),
                     "log_path": rj.job.log_path,
@@ -241,17 +250,20 @@ def main() -> int:
                 }
             )
             status = "ok" if code == 0 else "failed"
-            print(f"[finish] {rj.job.scope}/{rj.job.name} on gpu {rj.gpu_id} -> {status} (exit={code}, {elapsed}s)")
+            print(f"[finish] {rj.job.scope}/{rj.job.name} on gpu(s) {gpu_str} -> {status} (exit={code}, {elapsed}s)")
         running = still_running
 
         if pending and len(running) < max_jobs:
             gpu_rows = _query_gpus()
             eligible = _eligible_gpu_ids(gpu_rows, gpu_ids, min_free, max_util)
-            busy = {rj.gpu_id for rj in running}
+            busy = {g for rj in running for g in rj.gpu_ids}
             free = [g for g in eligible if g not in busy]
-            while pending and free and len(running) < max_jobs:
-                job = pending.pop(0)
-                gpu_id = free.pop(0)
+            while pending and len(running) < max_jobs:
+                job = pending[0]
+                if len(free) < job.gpus_per_job:
+                    break
+                pending.pop(0)
+                assigned = [free.pop(0) for _ in range(job.gpus_per_job)]
                 run_tag = f"full14_{job.name}_{args.splits}"
                 cmd = [
                     "/home/cliu/miniconda3/bin/conda",
@@ -282,6 +294,8 @@ def main() -> int:
                     cmd.append("--no-with-aesthetics")
                 if full_cfg_obj.get("execution", {}).get("skip_feature_extract", False):
                     cmd.append("--skip-feature-extract")
+                if job.only_steps:
+                    cmd += ["--only-steps", job.only_steps]
                 # Pass-through per-dataset extraction window/chunk/pool flags.
                 ef = job.extract_flags
                 if ef.get("chunk_sec", 0.0) > 0:
@@ -292,13 +306,14 @@ def main() -> int:
                     cmd += ["--extract-max-audio-sec", str(ef["max_audio_sec"])]
 
                 env = os.environ.copy()
-                env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+                gpu_str = ",".join(str(g) for g in assigned)
+                env["CUDA_VISIBLE_DEVICES"] = gpu_str
                 lf = open(job.log_path, "a", encoding="utf-8")
-                lf.write(f"\n[{_now_iso()}] launch on gpu={gpu_id}: {' '.join(cmd)}\n")
+                lf.write(f"\n[{_now_iso()}] launch on gpu(s)={gpu_str}: {' '.join(cmd)}\n")
                 lf.flush()
                 proc = subprocess.Popen(cmd, env=env, stdout=lf, stderr=lf, cwd=project_root)
-                running.append(RunningJob(job=job, gpu_id=gpu_id, process=proc, started_at=time.time()))
-                print(f"[launch] {job.scope}/{job.name} on gpu {gpu_id} (pid={proc.pid})")
+                running.append(RunningJob(job=job, gpu_ids=assigned, process=proc, started_at=time.time()))
+                print(f"[launch] {job.scope}/{job.name} on gpu(s) {gpu_str} (pid={proc.pid})")
 
         if pending or running:
             time.sleep(poll_interval)

@@ -244,6 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skip-feature-extract", action="store_true")
     parser.add_argument(
+        "--only-steps", type=str, default="",
+        help="Comma-separated whitelist of step names to run (all others are skipped). "
+             "E.g. --only-steps f03_sae_only_cnn",
+    )
+    parser.add_argument(
         "--skip-sae",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -360,7 +365,15 @@ def main() -> int:
     runtime_split_paths = {k: os.path.join(runtime_split_dir, f"{k}.csv") for k in ["train", "val", "test"]}
     cfg.setdefault("data", {}).setdefault("splits", {}).setdefault(args.splits, {})
     for split_name in ["train", "val", "test"]:
-        cfg["data"]["splits"][args.splits][split_name] = runtime_split_paths[split_name]
+        if args.skip_feature_extract:
+            # Don't redirect to runtime_splits — they won't be created.
+            # Resolve config split paths to absolute so training can find them.
+            raw = cfg["data"]["splits"][args.splits].get(split_name, source_split_paths[split_name])
+            cfg["data"]["splits"][args.splits][split_name] = (
+                raw if os.path.isabs(raw) else os.path.join(project_root, raw)
+            )
+        else:
+            cfg["data"]["splits"][args.splits][split_name] = runtime_split_paths[split_name]
     with open(release_cfg, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=False)
 
@@ -526,6 +539,12 @@ def main() -> int:
         before = len(steps)
         steps = [s for s in steps if s.name not in sae_step_names]
         print(f"[skip-sae] removed {before - len(steps)} SAE-related steps.")
+
+    if args.only_steps:
+        whitelist = {s.strip() for s in args.only_steps.split(",") if s.strip()}
+        before = len(steps)
+        steps = [s for s in steps if s.name in whitelist]
+        print(f"[only-steps] keeping {len(steps)}/{before} steps: {sorted(whitelist)}")
 
     env = os.environ.copy()
     env["PYTHONPATH"] = f'{project_root}:{env.get("PYTHONPATH", "")}'
