@@ -14,7 +14,7 @@ execution:
     - "large_scale_merged"
   prepare_splits: false
   with_aesthetics: false
-  skip_feature_extract: false
+  skip_feature_extract: true
 
 # Per-dataset feature-extraction flags.  The parallel runner forwards these
 # into ``run_musiceval_14_experiments.py`` which appends them to the entropy,
@@ -43,9 +43,9 @@ datasets:
         max_audio_sec: 30.0
       splits:
         clean:
-          train: "phase7_release/data/full_splits/musicpref/train.csv"
-          val: "phase7_release/data/full_splits/musicpref/val.csv"
-          test: "phase7_release/data/full_splits/musicpref/test.csv"
+          train: "phase7_release/features/loss/musicpref/clean/split_train.csv"
+          val: "phase7_release/features/loss/musicpref/clean/split_val.csv"
+          test: "phase7_release/features/loss/musicpref/clean/split_test.csv"
 
     - name: "aime"
       enabled: true
@@ -53,9 +53,9 @@ datasets:
         max_audio_sec: 10.0
       splits:
         clean:
-          train: "phase7_release/data/full_splits/aime/train.csv"
-          val: "phase7_release/data/full_splits/aime/val.csv"
-          test: "phase7_release/data/full_splits/aime/test.csv"
+          train: "phase7_release/features/loss/aime/clean/split_train.csv"
+          val: "phase7_release/features/loss/aime/clean/split_val.csv"
+          test: "phase7_release/features/loss/aime/clean/split_test.csv"
 
     - name: "songeval"
       enabled: true
@@ -65,18 +65,18 @@ datasets:
         max_audio_sec: 360.0
       splits:
         clean:
-          train: "phase7_release/data/full_splits/songeval/train.csv"
-          val: "phase7_release/data/full_splits/songeval/val.csv"
-          test: "phase7_release/data/full_splits/songeval/test.csv"
+          train: "phase7_release/features/loss/songeval/clean/split_train.csv"
+          val: "phase7_release/features/loss/songeval/clean/split_val.csv"
+          test: "phase7_release/features/loss/songeval/clean/split_test.csv"
 
     - name: "musiceval"
       enabled: false  # small-scale runner handles MusicEval separately
       extract_flags: {}
       splits:
         clean:
-          train: "phase7_release/data/full_splits/musiceval/train.csv"
-          val: "phase7_release/data/full_splits/musiceval/val.csv"
-          test: "phase7_release/data/full_splits/musiceval/test.csv"
+          train: "phase7_release/features/loss/musiceval/clean/split_train.csv"
+          val: "phase7_release/features/loss/musiceval/clean/split_val.csv"
+          test: "phase7_release/features/loss/musiceval/clean/split_test.csv"
 
     - name: "music_arena"
       enabled: true
@@ -86,9 +86,9 @@ datasets:
         max_audio_sec: 180.0
       splits:
         clean:
-          train: "phase7_release/data/full_splits/music_arena/train.csv"
-          val: "phase7_release/data/full_splits/music_arena/val.csv"
-          test: "phase7_release/data/full_splits/music_arena/test.csv"
+          train: "phase7_release/features/loss/music_arena/clean/split_train.csv"
+          val: "phase7_release/features/loss/music_arena/clean/split_val.csv"
+          test: "phase7_release/features/loss/music_arena/clean/split_test.csv"
 
   large_scale_merged:
     - name: "all_5_datasets"

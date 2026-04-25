@@ -137,6 +137,17 @@ if [[ "${SKIP_CLEAN}" == "0" ]]; then
     run_sh "rm -f  phase7_release/outputs/run_state/full14_${ds}_${SPLITS}.state.json"
     run_sh "rm -f  phase7_release/outputs/run_state/full14_${ds}_${SPLITS}.lock.json"
   done
+
+  # 0.5 Clean stale overlay configs and generated configs
+  run_sh "rm -rf phase7_release/outputs/run_state/1st_iter"
+  run_sh "rm -rf phase7_release/outputs/run_state/full_generated_configs"
+  run_sh "rm -rf phase7_release/outputs/run_state/full_parallel_logs"
+  run_sh "rm -rf phase7_release/outputs/run_state/runtime_configs"
+  run_sh "rm -rf phase7_release/outputs/run_state/runtime_splits"
+  run_sh "rm -f  phase7_release/outputs/run_state/full14_aime_clean.state.json"
+  run_sh "rm -f  phase7_release/outputs/run_state/full14_music_arena_clean.state.json"
+  run_sh "rm -f  phase7_release/outputs/run_state/full14_musicpref_clean.state.json"
+  run_sh "rm -f  phase7_release/outputs/run_state/full14_songeval_clean.state.json"
 else
   echo "[stage 0/4] SKIPPED (--skip-clean)"
 fi

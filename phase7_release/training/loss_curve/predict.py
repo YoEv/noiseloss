@@ -28,12 +28,16 @@ def main():
     project_root = resolve_project_root(cfg)
 
     paths = get_exp11_split_paths(args.config, splits=args.splits)
+    feature_roots = cfg.get("data", {}).get("feature_roots", {})
+    token_loss_root = feature_roots.get("token_loss_root", "")
+    token_loss_root = token_loss_root if os.path.isabs(token_loss_root) else os.path.join(project_root, token_loss_root) if token_loss_root else None
     test_ds = LossCurveDataset(
         paths["test"],
         max_len=MAX_LEN,
         entropy_manifest_csv=args.entropy_manifest_csv,
         skip_if_entropy_missing=False,
         entropy_fill_missing=bool(args.entropy_manifest_csv),
+        feature_root=token_loss_root,
     )
     test_loader = DataLoader(test_ds, batch_size=args.batch_size, collate_fn=loss_curve_collate_fn)
     in_ch = int(test_ds.output_channels)

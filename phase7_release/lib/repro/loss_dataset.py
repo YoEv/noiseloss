@@ -65,8 +65,9 @@ class LossCurveDataset(Dataset):
         index_file_path: str,
         max_len: int = 1500,
         entropy_manifest_csv: Optional[Union[str, List[str]]] = None,
-        skip_if_entropy_missing: bool = True,
+        skip_if_entropy_missing: bool = False,
         entropy_fill_missing: bool = False,
+        feature_root: Optional[str] = None,
     ):
         self.index_df = pd.read_csv(index_file_path)
         self.max_len = max_len
@@ -81,6 +82,17 @@ class LossCurveDataset(Dataset):
         self.output_channels = (NUM_CODEBOOKS * 2 + 1) if self.use_entropy else (NUM_CODEBOOKS + 1)
         self.skip_if_entropy_missing = skip_if_entropy_missing
         self.entropy_fill_missing = entropy_fill_missing
+        self.feature_root = feature_root
+        self._index_file_path = index_file_path
+
+        # Build source->feature_root mapping for multi-dataset (all_5_datasets)
+        # Map points to parent like /features/loss/music_arena/clean
+        self._source_root_map: Dict[str, str] = {}
+        if feature_root and os.path.isdir(feature_root):
+            for src in os.listdir(feature_root):
+                src_path = os.path.join(feature_root, src)
+                if os.path.isdir(src_path):
+                    self._source_root_map[src] = src_path
 
     def __len__(self):
         return len(self.index_df)
@@ -89,6 +101,19 @@ class LossCurveDataset(Dataset):
         row = self.index_df.iloc[idx]
         score = row["score"]
         csv_path = str(row["token_loss_path"])
+
+        # Multi-dataset lookup: prepend source-specific feature root if available
+        if self.feature_root and self._source_root_map:
+            source = str(row.get("source", ""))
+            if source in self._source_root_map:
+                # token_loss_path format: {source}/clean/{split}/xxx_loss.csv
+                # Need to join: feature_root/{source} -> .../features/loss/music_arena
+                # Then add the /clean/{split}/xxx part
+                prefix = self._source_root_map[source]
+                # Extract the part after {source}/ from token_loss_path
+                remaining = csv_path.split(source + "/", 1)[1] if source in csv_path else csv_path
+                csv_path = prefix + "/" + remaining
+
         loss_curves = read_loss_codebook_curves(csv_path, num_codebooks=NUM_CODEBOOKS)  # [4, T]
         if loss_curves.shape[1] == 0:
             return None, None

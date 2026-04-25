@@ -48,7 +48,12 @@ DEFAULT_OUTCOME_MAP: Mapping[str, Tuple[float, float]] = {
 
 
 def _expected(r_i: float, r_j: float) -> float:
-    return 1.0 / (1.0 + 10.0 ** ((r_j - r_i) / 400.0))
+    diff = (r_j - r_i) / 400.0
+    if diff > 100:
+        return 0.0
+    elif diff < -100:
+        return 1.0
+    return 1.0 / (1.0 + 10.0 ** diff)
 
 
 def _outcome_scores(

@@ -134,20 +134,31 @@ def _build_jobs(project_root: str, base_cfg_path: str, full_cfg_path: str, split
             }
 
             out_root_rel = os.path.join("phase7_release", "outputs", "full")
+            feature_root_rel = os.path.join("phase7_release", "features")
             merged["outputs"] = {
                 "root": out_root_rel,
                 "checkpoints": os.path.join(out_root_rel, "checkpoints", name, split_tag),
                 "logs": os.path.join(out_root_rel, "logs", name, split_tag),
                 "plots": os.path.join(out_root_rel, "plots", name, split_tag),
                 "reports": os.path.join(out_root_rel, "reports", name, split_tag),
-                "features_entropy": os.path.join(out_root_rel, "features", "entropy", name, split_tag),
-                "features_loss": os.path.join(out_root_rel, "features", "loss", name, split_tag),
+                "features_entropy": os.path.join(feature_root_rel, "entropy", name, split_tag),
+                "features_loss": os.path.join(feature_root_rel, "loss", name, split_tag),
             }
             merged.setdefault("data", {}).setdefault("feature_roots", {})["token_loss_root"] = os.path.join(
-                out_root_rel, "features", "loss", name, split_tag
+                feature_root_rel, "loss", name, split_tag
             )
             if "sae" in merged:
-                merged["sae"]["output_dir"] = os.path.join(out_root_rel, "features", "sae", name, split_tag)
+                merged["sae"]["output_dir"] = os.path.join(feature_root_rel, "sae", name, split_tag)
+
+            # all_5_datasets reads features from per-dataset subdirs under the shared feature root
+            if name == "all_5_datasets":
+                merged["outputs"]["features_entropy"] = os.path.join(feature_root_rel, "entropy")
+                merged["outputs"]["features_loss"] = os.path.join(feature_root_rel, "loss")
+                merged.setdefault("data", {}).setdefault("feature_roots", {})["token_loss_root"] = os.path.join(
+                    feature_root_rel, "loss"
+                )
+                if "sae" in merged:
+                    merged["sae"]["output_dir"] = os.path.join(feature_root_rel, "sae")
 
             cfg_path = os.path.join(generated_cfg_root, f"{scope}_{name}_{split_tag}.yaml")
             _save_yaml(cfg_path, merged)
@@ -199,7 +210,6 @@ def main() -> int:
     if not eligible_start:
         raise RuntimeError("No eligible GPUs found. Check nvidia-smi state or relax thresholds in full_datasets.yaml")
     print(f"[gpu-detect] eligible GPUs at startup: {eligible_start}")
-
     if args.dry_run:
         for job in jobs:
             print(f"[dry-run] {job.scope}/{job.name} config={job.config_path}")
@@ -209,6 +219,7 @@ def main() -> int:
     running: List[RunningJob] = []
     results: List[Dict[str, str]] = []
     os.chdir(project_root)
+    print(f"[gpu-detect] pending jobs: {len(pending)}, max concurrent: {max_jobs}")
 
     while pending or running:
         still_running: List[RunningJob] = []
@@ -243,7 +254,7 @@ def main() -> int:
                 gpu_id = free.pop(0)
                 run_tag = f"full14_{job.name}_{args.splits}"
                 cmd = [
-                    "conda",
+                    "/home/cliu/miniconda3/bin/conda",
                     "run",
                     "-n",
                     args.torch_env,

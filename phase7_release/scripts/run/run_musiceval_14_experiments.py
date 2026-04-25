@@ -71,6 +71,12 @@ def _release_lock(lock_path: str) -> None:
 def _with_dataset_scope(base_dir: str, dataset: str, split_tag: str) -> str:
     norm = os.path.normpath(base_dir)
     parts = norm.split(os.sep)
+    
+    # Guard: if already a shared directory (no dataset suffix), skip scoping
+    # This happens for all_5_datasets which reuses features from single runs
+    if dataset == "all_5_datasets":
+        return base_dir
+    
     # Guard against legacy duplicated tails like ".../musiceval/musiceval".
     while len(parts) >= 2 and parts[-1] == dataset and parts[-2] == dataset:
         parts.pop()
@@ -282,7 +288,7 @@ def main() -> int:
     from phase7_release.lib.repro.data_paths import detect_project_root
     args = build_parser().parse_args()
     project_root = os.path.abspath(args.project_root) if args.project_root else detect_project_root()
-    run_tag = args.run_tag or f"musiceval14_{args.dataset}_{args.splits}"
+    run_tag = args.run_tag or f"full14_{args.dataset}_{args.splits}"
     state_dir = args.state_dir if os.path.isabs(args.state_dir) else os.path.join(project_root, args.state_dir)
     os.makedirs(state_dir, exist_ok=True)
     state_file = os.path.join(state_dir, f"{run_tag}.state.json")

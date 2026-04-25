@@ -87,9 +87,12 @@ def main():
     os.makedirs(ckpt_dir, exist_ok=True)
 
     paths = get_exp11_split_paths(args.config, splits=args.splits)
+    feature_roots = cfg.get("data", {}).get("feature_roots", {})
+    token_loss_root = feature_roots.get("token_loss_root", "")
+    token_loss_root = token_loss_root if os.path.isabs(token_loss_root) else os.path.join(project_root, token_loss_root) if token_loss_root else None
     manifest_list = args.entropy_manifest_csv
-    train_ds = LossCurveDataset(paths["train"], max_len=MAX_LEN, entropy_manifest_csv=manifest_list)
-    val_ds = LossCurveDataset(paths["val"], max_len=MAX_LEN, entropy_manifest_csv=manifest_list)
+    train_ds = LossCurveDataset(paths["train"], max_len=MAX_LEN, entropy_manifest_csv=manifest_list, feature_root=token_loss_root)
+    val_ds = LossCurveDataset(paths["val"], max_len=MAX_LEN, entropy_manifest_csv=manifest_list, feature_root=token_loss_root)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=loss_curve_collate_fn)
     val_loader = DataLoader(val_ds, batch_size=batch_size, collate_fn=loss_curve_collate_fn)
 

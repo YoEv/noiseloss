@@ -12,7 +12,7 @@ data:
       val: "phase7_release/data/splits/musiceval/val.csv"
       test: "phase7_release/data/splits/musiceval/test.csv"
   feature_roots:
-    token_loss_root: "phase7_release/features/token_loss"
+    token_loss_root: "phase7_release/features/loss"
     sae_feature_root: "phase7_release/features/sae"
   preprocess:
     musiceval_source_split_root: "experiments/phase7/loss_eval_experiments/exp11_large_scale_replication/1_data_preparation"
@@ -26,7 +26,8 @@ outputs:
   logs: "phase7_release/outputs/logs"
   plots: "phase7_release/outputs/plots"
   reports: "phase7_release/outputs/reports"
-  features_loss: "phase7_release/outputs/features/loss"
+  features_loss: "phase7_release/features/loss"
+  features_entropy: "phase7_release/features/entropy"
 
 seq_len: 1500
 sae_hidden_dim: 16384
