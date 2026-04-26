@@ -118,6 +118,72 @@ SAE-only collapses on cross-dataset (−0.234); adding entropy rescues performan
 
 ---
 
+## Baseline — Audiobox Aesthetics
+
+**Completed**: 2026-04-26 | **Script**: `phase7_release/scripts/baseline/aesthetics_windowed.py`
+**Env**: `audiobox` (torchaudio 2.1.0+cu121) | Window: `start_time`/`end_time` passed directly to AesPredictor
+
+Axes: CE (Content Enjoyment), CU (Content Usefulness), PC (Production Complexity), PQ (Production Quality)
+
+### music_arena — all clips (N=6120)
+
+| Axis | Pearson | Spearman |
+|------|---------|----------|
+| CE | 0.237 | 0.260 |
+| CU | 0.223 | 0.244 |
+| PC | 0.148 | 0.230 |
+| **PQ** | **0.333** | **0.395** |
+
+Test set only (N=612): CE=0.289, CU=0.265, PC=0.134, PQ=**0.393**
+
+### all_5_datasets — all clips (N=17597)
+
+| Axis | Pearson | Spearman |
+|------|---------|----------|
+| CE | 0.200 | 0.215 |
+| CU | 0.184 | 0.191 |
+| PC | 0.071 | 0.086 |
+| **PQ** | **0.198** | **0.233** |
+
+Test set only (N=1762): CE=0.209, CU=0.199, PC=0.050, PQ=**0.215**
+
+### Comparison: Aesthetics baseline vs CNN models
+
+| Dataset | Best Aesthetics (PQ) | Best CNN (f05 ent+SAE) | CNN / Aes ratio |
+|---------|---------------------|----------------------|-----------------|
+| music_arena | P=0.333 | P=0.785 (f03) | 2.4× |
+| all_5_datasets | P=0.198 | P=0.729 (f05) | 3.7× |
+
+**Key findings**:
+- PQ (Production Quality) is the strongest aesthetics axis across both datasets
+- Aesthetics alone is a weak predictor: P=0.33 on music_arena, P=0.20 on all_5_datasets
+- Our CNN models outperform aesthetics by 2.4–3.7× — learned features capture rater preference better than generic audio quality scores
+- Cross-dataset gap is larger for aesthetics (0.333 → 0.198, −0.135) than for our models (0.785 → 0.729, −0.056)
+
+---
+
+## Baseline — Mean Token Loss
+
+**Method**: Mean of `avg_loss_value` across all tokens in the pre-extracted loss file (already windowed to rater's audio window). No recomputation from MusicGen-small needed.
+
+| Dataset | N | Pearson R | Spearman R |
+|---------|---|-----------|------------|
+| musicpref | 5030 | −0.297 | −0.415 |
+| aime | 1300 | −0.105 | −0.092 |
+| songeval | 2399 | +0.236 | +0.107 |
+| music_arena | 6120 | −0.081 | −0.069 |
+| musiceval | 2748 | −0.022 | −0.069 |
+| **all_5_datasets** | **17597** | **−0.078** | **−0.127** |
+
+**Key findings**:
+- Negative correlation for 4/5 datasets — lower loss (model assigns higher probability) → higher human quality score, as expected
+- songeval is anomalous (+0.236): scoring methodology differs (full-song ratings vs pairwise)
+- musicpref has the strongest signal (|R|=0.297) but still far below CNN models
+- Mean loss alone is a weak predictor: |R|=0.08–0.30 vs f01 CNN loss-only achieving P=0.622 on music_arena
+- CNN models extract richer structure from the full loss curve shape beyond a scalar mean
+
+---
+
 ## Next Steps
 1. Investigate SAE generalization gap: SAE features (musicgen-small) may be dataset-specific; entropy codebook curves provide more universal signal.
 2. Evaluate per-dataset breakdown of all_5 test set (are some datasets harder? does SAE help on music_arena subset?).
