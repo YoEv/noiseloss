@@ -78,7 +78,48 @@ Train f01–f07 CNN models for all datasets; evaluate Pearson/Spearman correlati
 
 ---
 
+## Results — f01–f07 CNN (all_5_datasets merged, uniform sampling)
+
+**Completed**: 2026-04-26 | **Checkpoints**: `/tmp/ckpt_all5/` | **Reports**: `/tmp/reports_all5/`
+
+**Setup**: 14077 train / 1758 val / 1762 test (musicpref + aime + songeval + music_arena + musiceval merged).
+Uniform sampling. SAE hidden_dim=4096. Entropy manifests: 15 files (5 datasets × 3 splits).
+
+| Experiment | Features | Test Pearson | Test Spearman | N |
+|---|---|---|---|---|
+| f01 | loss-only | 0.582 | 0.546 | 1762 |
+| f02 | entropy-only | 0.617 | 0.591 | 1762 |
+| f03 | SAE-only | 0.551 | 0.448 | 1762 |
+| f04 | loss + entropy | 0.614 | 0.579 | 1762 |
+| **f05** | **entropy + SAE** | **0.729** | **0.702** | 1762 |
+| f06 | loss + SAE | 0.703 | 0.664 | 1762 |
+| f07 | loss + entropy + SAE | 0.722 | 0.699 | 1762 |
+
+**Key findings**:
+- f05 (entropy+SAE) is best: P=0.729, S=0.702 — entropy curves complement SAE well on cross-dataset generalization
+- f03 SAE-only drops dramatically vs music_arena (0.551 vs 0.785) — SAE alone doesn't generalize across datasets
+- Adding entropy to SAE (f05) recovers +0.178 Pearson over f03 alone — entropy provides cross-dataset signal
+- Loss curves add less value than entropy when combined with SAE (f06 < f05)
+- f07 (full hybrid) slightly worse than f05 — loss curves may add noise on top of entropy+SAE
+- Non-SAE models (f01–f04): 0.58–0.62 Pearson, consistent with music_arena-only performance
+
+**Contrast with music_arena-only** (N=606):
+
+| Exp | music_arena P | all_5 P | Δ |
+|-----|--------------|---------|---|
+| f01 | 0.622 | 0.582 | −0.040 |
+| f02 | 0.604 | 0.617 | +0.013 |
+| f03 | 0.785 | 0.551 | −0.234 |
+| f05 | 0.780 | 0.729 | −0.051 |
+| f06 | 0.774 | 0.703 | −0.071 |
+| f07 | 0.760 | 0.722 | −0.038 |
+
+SAE-only collapses on cross-dataset (−0.234); adding entropy rescues performance (f05 −0.051 only).
+
+---
+
 ## Next Steps
-1. Investigate why SAE-only (f03) outperforms hybrids — adding curves hurts, suggesting the curve tower may be adding noise or competing with the SAE tower.
-2. Run full pipeline for other datasets (musicpref, aime, songeval) with same orchestrator.
-3. Consider ablating masked mean pooling vs. AdaptiveAvgPool in hybrid models.
+1. Investigate SAE generalization gap: SAE features (musicgen-small) may be dataset-specific; entropy codebook curves provide more universal signal.
+2. Evaluate per-dataset breakdown of all_5 test set (are some datasets harder? does SAE help on music_arena subset?).
+3. Run full pipeline for individual datasets (musicpref, aime, songeval) with the orchestrator.
+4. Consider ablating masked mean pooling vs. AdaptiveAvgPool in hybrid models.

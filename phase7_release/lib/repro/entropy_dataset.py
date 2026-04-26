@@ -71,6 +71,12 @@ class EntropyCurveDataset(Dataset):
     def __len__(self):
         return len(self.index_df)
 
+    def get_sample_weights(self) -> Optional[List[float]]:
+        """Return per-sample weights if a 'sample_weight' column exists, else None."""
+        if "sample_weight" not in self.index_df.columns:
+            return None
+        return self.index_df["sample_weight"].tolist()
+
     def __getitem__(self, idx):
         row = self.index_df.iloc[idx]
         score = float(row["score"])

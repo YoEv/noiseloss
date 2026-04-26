@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import yaml
 from scipy.stats import pearsonr
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from phase7_release.lib.repro.data_paths import get_exp11_split_paths, resolve_project_root
 from phase7_release.lib.repro.entropy_dataset import EntropyCurveDataset, entropy_curve_collate_fn
@@ -89,7 +89,13 @@ def main():
     paths = get_exp11_split_paths(args.config, splits=args.splits)
     train_ds = EntropyCurveDataset(paths["train"], max_len=MAX_LEN, entropy_manifest_csv=args.entropy_manifest_csv)
     val_ds = EntropyCurveDataset(paths["val"], max_len=MAX_LEN, entropy_manifest_csv=args.entropy_manifest_csv)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=entropy_curve_collate_fn)
+    sample_weights = train_ds.get_sample_weights()
+    if sample_weights is not None:
+        sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_ds), replacement=True)
+        train_loader = DataLoader(train_ds, batch_size=batch_size, sampler=sampler, collate_fn=entropy_curve_collate_fn)
+        print(f"[weighted sampler] using sample_weight column, {len(set(sample_weights))} distinct weights")
+    else:
+        train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, collate_fn=entropy_curve_collate_fn)
     val_loader = DataLoader(val_ds, batch_size=batch_size, collate_fn=entropy_curve_collate_fn)
     if len(train_ds) == 0 or len(val_ds) == 0:
         raise RuntimeError("Entropy dataset is empty; check split csv and entropy manifests.")
