@@ -455,21 +455,59 @@ def _run_musicarena(args: argparse.Namespace, root: Path) -> pd.DataFrame:
         sys_baseline = map_to_mos_range(
             sys_elo, low=0.0, high=float(args.system_span), robust=True,
         )
+    else:
+        sys_baseline = {s: float(r) for s, r in sys_elo.items()}
+
+    # Per-system z-score residual: normalise each clip's residual by the
+    # system's own residual std before adding the system baseline back.
+    # This makes per-clip spreads comparable across systems (e.g. acestep
+    # std=0.20 vs elevenlabs std=0.62 no longer compete for the same label
+    # range).  Clips with only one appearance keep their raw residual.
+    if args.zscore_residual:
+        from collections import defaultdict
+        sys_resids: Dict[str, List[float]] = defaultdict(list)
+        for t, r in residual.items():
+            sys_resids[track_system[t]].append(r)
+        sys_res_std: Dict[str, float] = {
+            s: float(np.std(v)) if len(v) > 1 else 1.0
+            for s, v in sys_resids.items()
+        }
+        raw = {
+            t: sys_baseline[track_system[t]]
+               + residual[t] / max(sys_res_std[track_system[t]], 1e-6)
+            for t in track_system
+        }
+    else:
         raw = {
             t: sys_baseline[track_system[t]] + residual[t]
             for t in track_system
         }
-    else:
-        raw = track_score_from_system_elo(
-            sys_elo, enriched, k_factor=args.k_track,
-            outcome_map=outcome_map, return_adjustment=False,
-            target_fn=context_target_fn,
-        )
+
     mos = map_to_mos_range(raw, low=args.low, high=args.high, robust=True)
 
+    # Min-clips-per-system filter: compute clip counts after listen filter,
+    # then exclude systems that fall below the threshold.
+    min_clips = int(args.min_clips_per_system)
     max_listen = float(args.max_listen_sec)
+    if min_clips > 0:
+        from collections import Counter
+        sys_clip_counts: Counter = Counter()
+        for t in track_system:
+            dur = track_dur[t] if track_dur[t] > 0 else float("inf")
+            heard = min(track_listen[t], dur)
+            if min(heard, max_listen) >= float(args.min_listen_sec):
+                sys_clip_counts[track_system[t]] += 1
+        dropped_sys = {s for s, n in sys_clip_counts.items() if n < min_clips}
+        if dropped_sys:
+            print(f"[min-clips-per-system={min_clips}] dropping {len(dropped_sys)} system(s): "
+                  f"{sorted(dropped_sys)}")
+    else:
+        dropped_sys = set()
+
     rows: List[dict] = []
     for t, s in sorted(mos.items()):
+        if track_system[t] in dropped_sys:
+            continue
         dur = track_dur[t] if track_dur[t] > 0 else float("inf")
         heard = min(track_listen[t], dur)
         listen_sec_used = float(min(heard, max_listen))
@@ -538,7 +576,9 @@ def main() -> None:
     # -- Elo hyperparams ----------------------------------------------------
     ap.add_argument("--k-system", dest="k_system", type=float, default=24.0)
     ap.add_argument("--k-track", dest="k_track", type=float, default=16.0)
-    ap.add_argument("--passes", type=int, default=80)
+    ap.add_argument("--passes", type=int, default=4,
+                    help="Passes for track-level ELO residual fit. "
+                         "Kept low (default=4) to reduce per-clip residual variance.")
     ap.add_argument("--passes-system", dest="passes_system", type=int, default=None,
                     help="Passes for system-level ELO fit (musicarena only). "
                          "Defaults to 1 to prevent both_bad drain accumulation.")
@@ -572,6 +612,18 @@ def main() -> None:
     ap.add_argument("--min-listen-sec", dest="min_listen_sec",
                     type=float, default=2.0,
                     help="Drop clips whose rater listened < this many seconds.")
+    ap.add_argument("--min-clips-per-system", dest="min_clips_per_system",
+                    type=int, default=60,
+                    help="Drop systems with fewer clips than this after listen "
+                         "filtering. Prevents saturated/sparse system labels "
+                         "from polluting training.")
+    ap.add_argument("--zscore-residual", dest="zscore_residual",
+                    action="store_true", default=True,
+                    help="Normalise per-clip residual by per-system std before "
+                         "adding system baseline, making residuals comparable "
+                         "across systems with different score spreads.")
+    ap.add_argument("--no-zscore-residual", dest="zscore_residual",
+                    action="store_false")
 
     # -- MusicPref audio_path prefix in the CSV ----------------------------
     ap.add_argument(
