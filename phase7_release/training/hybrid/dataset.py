@@ -168,13 +168,14 @@ class HybridPrecomputedDataset(Dataset):
                 entropy_curve = np.zeros((NUM_CODEBOOKS, 0), dtype=np.float32)
 
         if self.curve_mode == "loss":
-            stacked_curve, _ = pack_curves_with_mask(loss_curves, self.seq_len)  # [5, L]
+            stacked_curve, curve_valid_len = pack_curves_with_mask(loss_curves, self.seq_len)  # [5, L]
         elif self.curve_mode == "entropy":
             entropy_curves = entropy_curve if entropy_curve is not None else np.zeros((NUM_CODEBOOKS, 0), dtype=np.float32)
-            stacked_curve, _ = pack_curves_with_mask(entropy_curves, self.seq_len)  # [5, L]
+            stacked_curve, curve_valid_len = pack_curves_with_mask(entropy_curves, self.seq_len)  # [5, L]
         elif self.curve_mode == "loss_entropy":
             entropy_curves = entropy_curve if entropy_curve is not None else np.zeros((NUM_CODEBOOKS, 0), dtype=np.float32)
             joint = min(int(loss_curves.shape[1]), int(entropy_curves.shape[1]), self.seq_len)
+            curve_valid_len = joint
             if joint <= 0:
                 stacked_curve = np.zeros((NUM_CODEBOOKS * 2 + 1, self.seq_len), dtype=np.float32)
             else:
@@ -182,10 +183,9 @@ class HybridPrecomputedDataset(Dataset):
                 stacked_curve[:NUM_CODEBOOKS, :joint] = loss_curves[:, :joint]
                 stacked_curve[NUM_CODEBOOKS : NUM_CODEBOOKS * 2, :joint] = entropy_curves[:, :joint]
                 stacked_curve[-1, :joint] = 1.0
-                if joint < self.seq_len:
-                    pass
         else:
             stacked_curve = np.zeros((0, self.seq_len), dtype=np.float32)
+            curve_valid_len = 0
 
         if self._sae_mode == "sharded":
             shard_file = os.path.join(self._shard_dir, f"{idx:06d}.npy")
@@ -196,6 +196,7 @@ class HybridPrecomputedDataset(Dataset):
         else:
             start, end = int(self._sae_cum[idx]), int(self._sae_cum[idx + 1])
             feat = np.array(self._sae_memmap[start:end], dtype=np.float32)
+        sae_valid_len = min(int(feat.shape[0]), self.seq_len)
         if feat.shape[0] >= self.seq_len:
             feat = feat[: self.seq_len]
         else:
@@ -203,5 +204,7 @@ class HybridPrecomputedDataset(Dataset):
         return {
             "loss_curve": torch.tensor(stacked_curve, dtype=torch.float32),
             "sae_features": torch.tensor(feat, dtype=torch.float32),
+            "sae_len": torch.tensor(sae_valid_len, dtype=torch.long),
+            "curve_len": torch.tensor(curve_valid_len, dtype=torch.long),
             "score": torch.tensor([score], dtype=torch.float32),
         }

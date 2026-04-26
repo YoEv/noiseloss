@@ -406,9 +406,17 @@ def _run_musicarena(args: argparse.Namespace, root: Path) -> pd.DataFrame:
     outcome_map = dict(DEFAULT_OUTCOME_MAP)
     outcome_map["both_bad"] = (args.both_bad_score, args.both_bad_score)
 
+    # System-level ELO: use very few passes (default=1) to prevent both_bad
+    # drain accumulation.  Each both_bad match drains exactly 2K from the
+    # rating pool per pass (constant, independent of expected score), so with
+    # passes=80 and 489 both_bad battles all system ELOs collapse to ~-150k.
+    # With passes=1 each system has ~437 matches — more than enough signal for
+    # a stable relative ordering.  The both_bad signal is kept (not changed to
+    # tie) so high-BB-rate systems still rank lower.
+    sys_passes = args.passes_system if args.passes_system is not None else 1
     sys_elo = fit_elo_grouped(
         pairs, group_of=lambda t: track_system[t],
-        k_factor=args.k_system, n_passes=args.passes,
+        k_factor=args.k_system, n_passes=sys_passes,
         n_seeds=args.seeds, seed=args.seed,
         outcome_map=outcome_map,
     )
@@ -531,6 +539,9 @@ def main() -> None:
     ap.add_argument("--k-system", dest="k_system", type=float, default=24.0)
     ap.add_argument("--k-track", dest="k_track", type=float, default=16.0)
     ap.add_argument("--passes", type=int, default=80)
+    ap.add_argument("--passes-system", dest="passes_system", type=int, default=None,
+                    help="Passes for system-level ELO fit (musicarena only). "
+                         "Defaults to 1 to prevent both_bad drain accumulation.")
     ap.add_argument("--seeds", type=int, default=8)
     ap.add_argument("--base-rating", dest="base_rating", type=float, default=1500.0)
     ap.add_argument("--seed", type=int, default=0)

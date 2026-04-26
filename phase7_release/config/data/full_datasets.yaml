@@ -80,6 +80,7 @@ datasets:
 
     - name: "music_arena"
       enabled: true
+      gpus_per_job: 2
       extract_flags:
         chunk_sec: 30.0
         pool_to_frames: 1500

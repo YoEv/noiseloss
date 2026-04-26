@@ -22,6 +22,19 @@ DATA_ROOT = detect_project_root()
 SHM_SAFETY_RATIO = 0.9
 
 
+def _masked_mean_pool(x: torch.Tensor, valid_out_lens: torch.Tensor) -> torch.Tensor:
+    """Mean-pool x over valid time positions only, ignoring zero-padded tail.
+
+    x: [B, C, T]  (output of final CNN layer, T may include zero-derived padding)
+    valid_out_lens: [B] int64, number of valid frames in x after CNN downsampling
+    Returns: [B, C]
+    """
+    T = x.shape[2]
+    mask = torch.arange(T, device=x.device).unsqueeze(0) < valid_out_lens.unsqueeze(1)  # [B, T]
+    mask = mask.unsqueeze(1).to(x.dtype)  # [B, 1, T]
+    return (x * mask).sum(-1) / mask.sum(-1).clamp(min=1)
+
+
 class LossCurveCNN(nn.Module):
     def __init__(self, input_channels=2):
         super().__init__()
@@ -37,12 +50,17 @@ class LossCurveCNN(nn.Module):
             nn.Conv1d(64, 128, kernel_size=3, padding=1, stride=1),
             nn.ReLU(),
             nn.BatchNorm1d(128),
-            nn.AdaptiveAvgPool1d(1),
         )
         self.feature_dim = 128
 
-    def forward(self, x):
-        return self.cnn(x).squeeze(-1)
+    def forward(self, x, lengths=None):
+        # x: [B, C, T]; lengths: [B] valid frames before padding
+        out = self.cnn(x)  # [B, 128, T//4]
+        if lengths is not None:
+            # Two MaxPool1d(2): valid_out = floor(floor(L / 2) / 2) = L // 4
+            valid_out = (lengths // 4).clamp(min=1)
+            return _masked_mean_pool(out, valid_out)
+        return out.mean(-1)
 
 
 class SAETower(nn.Module):
@@ -56,14 +74,20 @@ class SAETower(nn.Module):
             nn.Conv1d(64, 128, kernel_size=5, stride=2, padding=2),
             nn.ReLU(),
             nn.BatchNorm1d(128),
-            nn.AdaptiveAvgPool1d(1),
         )
         self.feature_dim = 128
 
-    def forward(self, x):
-        x = self.compress(x)
-        x = x.permute(0, 2, 1)
-        return self.cnn(x).squeeze(-1)
+    def forward(self, x, lengths=None):
+        # x: [B, T, sae_dim]; lengths: [B] valid SAE frames before padding
+        x = self.compress(x)      # [B, T, reduced_dim]
+        x = x.permute(0, 2, 1)    # [B, reduced_dim, T]
+        x = self.cnn(x)            # [B, 128, T_out]
+        if lengths is not None:
+            # Two Conv1d(stride=2, kernel=5, padding=2): out = floor((L-1)/2) + 1
+            valid_c1 = ((lengths - 1) // 2 + 1).clamp(min=1)
+            valid_c2 = ((valid_c1 - 1) // 2 + 1).clamp(min=1)
+            return _masked_mean_pool(x, valid_c2)
+        return x.mean(-1)
 
 
 class HybridTwoTowerModel(nn.Module):
@@ -74,8 +98,8 @@ class HybridTwoTowerModel(nn.Module):
         self.sae_tower = sae_tower
         self.head = nn.Sequential(nn.Linear(fusion_dim, fusion_dim // 2), nn.ReLU(), nn.Dropout(0.4), nn.Linear(fusion_dim // 2, 1))
 
-    def forward(self, loss_curve, sae_features):
-        return self.head(torch.cat([self.loss_tower(loss_curve), self.sae_tower(sae_features)], dim=1)).squeeze(-1)
+    def forward(self, loss_curve, sae_features, curve_len=None, sae_len=None):
+        return self.head(torch.cat([self.loss_tower(loss_curve, curve_len), self.sae_tower(sae_features, sae_len)], dim=1)).squeeze(-1)
 
 
 class SAEOnlyModel(nn.Module):
@@ -84,8 +108,8 @@ class SAEOnlyModel(nn.Module):
         self.sae_tower = sae_tower
         self.head = nn.Sequential(nn.Linear(sae_tower.feature_dim, sae_tower.feature_dim // 2), nn.ReLU(), nn.Dropout(0.4), nn.Linear(sae_tower.feature_dim // 2, 1))
 
-    def forward(self, _, sae_features):
-        return self.head(self.sae_tower(sae_features)).squeeze(-1)
+    def forward(self, _loss_curve, sae_features, curve_len=None, sae_len=None):
+        return self.head(self.sae_tower(sae_features, sae_len)).squeeze(-1)
 
 
 def _safe_loader_params(
@@ -122,6 +146,12 @@ def _safe_loader_params(
     return batch_size, nw, pf
 
 
+def _get_lengths(batch, device):
+    curve_len = batch["curve_len"].to(device, non_blocking=True) if "curve_len" in batch else None
+    sae_len = batch["sae_len"].to(device, non_blocking=True) if "sae_len" in batch else None
+    return curve_len, sae_len
+
+
 def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
     model.train()
     total_loss = 0.0
@@ -129,9 +159,10 @@ def train_epoch(model, loader, optimizer, criterion, device, scaler=None):
         loss_curve = batch["loss_curve"].to(device, non_blocking=True)
         sae_features = batch["sae_features"].to(device, non_blocking=True)
         scores = batch["score"].to(device, non_blocking=True).squeeze(-1)
+        curve_len, sae_len = _get_lengths(batch, device)
         optimizer.zero_grad(set_to_none=True)
         with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device.type == "cuda")):
-            preds = model(loss_curve, sae_features)
+            preds = model(loss_curve, sae_features, curve_len, sae_len)
             loss = criterion(preds, scores)
         if scaler is not None:
             scaler.scale(loss).backward()
@@ -153,8 +184,9 @@ def evaluate(model, loader, criterion, device):
             loss_curve = batch["loss_curve"].to(device, non_blocking=True)
             sae_features = batch["sae_features"].to(device, non_blocking=True)
             scores = batch["score"].to(device, non_blocking=True).squeeze(-1)
+            curve_len, sae_len = _get_lengths(batch, device)
             with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=(device.type == "cuda")):
-                preds = model(loss_curve, sae_features)
+                preds = model(loss_curve, sae_features, curve_len, sae_len)
                 loss = criterion(preds, scores)
             total_loss += loss.item()
             all_preds.extend(preds.cpu().numpy())
