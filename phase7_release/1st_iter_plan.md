@@ -37,29 +37,48 @@ Train f01–f07 CNN models for all datasets; evaluate Pearson/Spearman correlati
 
 **Problem**: `phase7_release/features/loss/music_arena/clean/split_*.csv` had stale ELO scores from before the fix. Training used these CSVs directly, bypassing the corrected manifest.
 
-**Fix**: Regenerated C-variant splits by joining corrected manifest onto feature split CSVs (matching by audio path stem). Overwrote the feature splits in-place:
-- `split_train.csv`: 4868 rows (was 4896; dropped lyria-3-pro-preview clips)
-- `split_val.csv`: 606 rows (was 612)
-- `split_test.csv`: 606 rows (was 612)
+**Fix**: Merged C-variant scores onto the full 4896-row feature splits (preserving SAE shard alignment). The 28 dropped lyria-3-pro-preview clips retain original scores; all other clips use corrected C scores.
+- `split_train.csv`: 4896 rows (4868 C-scored + 28 lyria fallback)
+- `split_val.csv`: 612 rows (606 C-scored + 6 lyria fallback)
+- `split_test.csv`: 612 rows (606 C-scored + 6 lyria fallback)
 
 ---
 
-## Training Status
+## Results — f01–f07 CNN (music_arena, corrected C scoring)
 
-### Previous runs (stale scores — do not use)
-- f01–f07 CNN clean results in `phase7_release/outputs/full/reports/music_arena/clean/` reflect OLD ELO scoring.
+**Completed**: 2026-04-26 | **Reports**: `phase7_release/outputs/full/reports/music_arena/clean/`
 
-### Current run — f01–f07 with corrected scoring (variant C)
-- **Started**: 2026-04-25
-- **Orchestrator**: `phase7_release/scripts/run/run_full_14_experiments_parallel.py`
-- **Config**: `phase7_release/config/data/full_datasets.yaml` (music_arena only; other datasets temporarily disabled)
-- **Log**: `phase7_release/outputs/run_state/full_parallel_logs/music_arena_retrain_C.log`
-- **Reports dir**: `phase7_release/outputs/full/reports/music_arena/clean/`
+| Experiment | Features | Pearson | Spearman | N |
+|---|---|---|---|---|
+| f01 | loss-only | 0.622 | 0.652 | 606 |
+| f02 | entropy-only | 0.604 | 0.676 | 606 |
+| **f03** | **SAE-only** | **0.785** | **0.851** | 612 |
+| f04 | loss + entropy | 0.599 | 0.648 | 612 |
+| f05 | entropy + SAE | 0.780 | 0.846 | 612 |
+| f06 | loss + SAE | 0.774 | 0.840 | 612 |
+| f07 | loss + entropy + SAE | 0.760 | 0.827 | 612 |
+
+**Key findings**:
+- SAE features dominate: f03 (SAE-only) is best at Pearson=0.785
+- Adding loss/entropy on top of SAE slightly hurts (f05–f07 < f03)
+- Loss/entropy alone: 0.60–0.62, far behind SAE
+- Previous run with stale scores peaked at Pearson=0.256 — corrected scoring lifted all experiments dramatically
+
+**Comparison with stale-score run** (for reference):
+
+| Experiment | Old Pearson | New Pearson | Δ |
+|---|---|---|---|
+| f01 | 0.146 | 0.622 | +0.476 |
+| f02 | 0.136 | 0.604 | +0.468 |
+| f03 | 0.242 | 0.785 | +0.543 |
+| f04 | 0.109 | 0.599 | +0.490 |
+| f05 | 0.256 | 0.780 | +0.524 |
+| f06 | 0.276 | 0.774 | +0.498 |
+| f07 | 0.259 | 0.760 | +0.501 |
 
 ---
 
 ## Next Steps
-1. Wait for f01–f07 training to complete.
-2. Read `aggregate_table_14_experiments_clean.csv` for final Pearson/Spearman table.
-3. Re-enable other datasets in `full_datasets.yaml` (musicpref, aime, songeval, all_5_datasets).
-4. Commit corrected split CSVs and scoring script changes.
+1. Investigate why SAE-only (f03) outperforms hybrids — adding curves hurts, suggesting the curve tower may be adding noise or competing with the SAE tower.
+2. Run full pipeline for other datasets (musicpref, aime, songeval) with same orchestrator.
+3. Consider ablating masked mean pooling vs. AdaptiveAvgPool in hybrid models.
